@@ -1,0 +1,200 @@
+/* 截图覆盖层：冻结背景 + 压暗遮罩 + 标注层 + 选区框 + 放大镜 + 玻璃工具条 */
+
+html, body { width: 100%; height: 100%; }
+body { cursor: crosshair; overflow: hidden; }
+
+canvas#bg,
+canvas#annot {
+  position: fixed;
+  inset: 0;
+}
+canvas#bg { z-index: 0; }
+#dim { z-index: 1; }
+canvas#annot { z-index: 2; pointer-events: none; }
+
+/* 压暗遮罩：无选区时整屏半透明；有选区时贴在选区上用巨型 box-shadow 只暗外部 */
+#dim {
+  position: fixed;
+  z-index: 1;
+  background: rgba(10, 14, 26, 0.34);
+  pointer-events: none;
+}
+#dim.shade {
+  background: transparent;
+  box-shadow: 0 0 0 100000px rgba(10, 14, 26, 0.34);
+}
+
+/* ---- 选区框与手柄 ---- */
+#selBox {
+  position: fixed;
+  z-index: 3;
+  display: none;
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55), 0 0 14px rgba(61, 139, 233, 0.35);
+  pointer-events: none;
+}
+#selBox .h {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  background: #fff;
+  border: 1.5px solid var(--accent);
+  border-radius: 2.5px;
+  pointer-events: auto;
+}
+#selBox .h[data-h='nw'] { left: -5.5px; top: -5.5px; cursor: nwse-resize; }
+#selBox .h[data-h='n']  { left: calc(50% - 5px); top: -5.5px; cursor: ns-resize; }
+#selBox .h[data-h='ne'] { right: -5.5px; top: -5.5px; cursor: nesw-resize; }
+#selBox .h[data-h='w']  { left: -5.5px; top: calc(50% - 5px); cursor: ew-resize; }
+#selBox .h[data-h='e']  { right: -5.5px; top: calc(50% - 5px); cursor: ew-resize; }
+#selBox .h[data-h='sw'] { left: -5.5px; bottom: -5.5px; cursor: nesw-resize; }
+#selBox .h[data-h='s']  { left: calc(50% - 5px); bottom: -5.5px; cursor: ns-resize; }
+#selBox .h[data-h='se'] { right: -5.5px; bottom: -5.5px; cursor: nwse-resize; }
+
+#sizeLabel {
+  position: fixed;
+  z-index: 4;
+  display: none;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--accent-grad);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 14px rgba(40, 90, 180, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ---- 放大镜 ---- */
+#mag {
+  position: fixed;
+  z-index: 5;
+  display: none;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+#magHex {
+  position: fixed;
+  z-index: 5;
+  display: none;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(18, 24, 40, 0.82);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+/* ---- 玻璃工具条 ---- */
+#toolbar {
+  position: fixed;
+  z-index: 6;
+  display: none;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: calc(100vw - 32px);
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-pop), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+#toolbar .sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border-weak);
+  align-self: center;
+}
+.tb {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  transition: background 0.12s;
+}
+.tb svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tb:hover { background: var(--bg-hover); }
+.tb.active {
+  background: var(--accent-grad);
+  color: #fff;
+  box-shadow: 0 4px 14px var(--accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.tb.primary {
+  background: var(--accent-grad);
+  color: #fff;
+  box-shadow: 0 4px 14px var(--accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.tb.primary:hover { filter: brightness(1.06); }
+
+#swatches { display: inline-flex; gap: 4px; align-items: center; padding: 0 2px; }
+.sw {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(120, 130, 160, 0.55);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.sw:hover { transform: scale(1.12); }
+.sw.active {
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent);
+  transform: scale(1.05);
+}
+
+#widths { display: inline-flex; gap: 3px; align-items: center; padding: 0 2px; }
+.wd {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+}
+.wd i {
+  display: block;
+  border-radius: 50%;
+  background: var(--text);
+}
+.wd:hover { background: var(--bg-hover); }
+.wd.active { background: var(--accent-soft); }
+.wd.active i { background: var(--accent); }
+
+/* ---- 文字标注输入框 ---- */
+#textInput {
+  position: fixed;
+  z-index: 7;
+  display: none;
+  min-width: 200px;
+  max-width: 60vw;
+  padding: 2px 4px;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  outline: none;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

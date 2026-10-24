@@ -1,0 +1,678 @@
+// 截图覆盖层交互：冻结背景 → 框选（可移动/重调）→ 标注 → 复制/保存/贴图
+// 坐标约定：页面内一律逻辑像素；导出时按 dpr 放大到物理分辨率裁剪
+(() => {
+  const api = window.shotAPI
+  window.addEventListener('error', (e) => console.error('[overlay] error:', e.message, e.filename, e.lineno))
+  const $ = (s) => document.querySelector(s)
+
+  const bgCanvas = $('#bg')
+  const annotCanvas = $('#annot')
+  const dim = $('#dim')
+  const selBox = $('#selBox')
+  const sizeLabel = $('#sizeLabel')
+  const mag = $('#mag')
+  const magHex = $('#magHex')
+  const toolbar = $('#toolbar')
+  const textInput = $('#textInput')
+  const undoBtn = $('#undoBtn')
+  const redoBtn = $('#redoBtn')
+  const swatchesBox = $('#swatches')
+  const widthsBox = $('#widths')
+
+  const MAG = 120
+  const ZOOM = 8 // 放大镜倍数（同时是像素网格间距）
+  const MOSAIC_BLOCK = 8 // 马赛克块大小（逻辑像素）
+  const MIN_SEL = 4
+  const TOOLS = ['rect', 'ellipse', 'arrow', 'pen', 'marker', 'text', 'mosaic']
+  const COLORS = ['#e5484d', '#ef9f43', '#f5cf3a', '#27a875', '#3d8be9', '#9d7bea', '#1a2036', '#ffffff']
+
+  let dpr = 1, W = 0, H = 0, originX = 0, originY = 0, displayId = null, pinOpacity = 100
+  let bgCtx = null, annotCtx = null, magCtx = null
+  let bgImg = null
+  let mosaicCanvas = null
+  let pixels = null // bgCanvas 的 ImageData（首次用放大镜时读一次，之后查表取色）
+
+  let state = 'idle' // idle | dragging | selected | moving | resizing | drawing
+  let sel = null // {x,y,w,h} 逻辑像素
+  let shapes = []
+  let redoShapes = []
+  let tool = null
+  let color = COLORS[0]
+  let strokeW = 2
+
+  let dragStart = null
+  let moveOrig = null
+  let resizeDir = ''
+  let curShape = null
+  let lastPt = null
+  let textPos = null
+
+  // ---------- 画布 ----------
+  function setupCanvas(c) {
+    c.width = Math.max(1, Math.round(W * dpr))
+    c.height = Math.max(1, Math.round(H * dpr))
+    c.style.width = W + 'px'
+    c.style.height = H + 'px'
+    const ctx = c.getContext('2d')
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    return ctx
+  }
+
+  function buildMosaic() {
+    mosaicCanvas = document.createElement('canvas')
+    mosaicCanvas.width = Math.max(1, Math.round(W / MOSAIC_BLOCK))
+    mosaicCanvas.height = Math.max(1, Math.round(H / MOSAIC_BLOCK))
+    const c = mosaicCanvas.getContext('2d')
+    c.imageSmoothingEnabled = true
+    c.drawImage(bgImg, 0, 0, mosaicCanvas.width, mosaicCanvas.height)
+  }
+
+  // ---------- 选区 UI ----------
+  function updateSelUI() {
+    if (!sel) {
+      selBox.style.display = 'none'
+      sizeLabel.style.display = 'none'
+      toolbar.style.display = 'none'
+      dim.classList.remove('shade')
+      dim.style.cssText = 'position:fixed;inset:0'
+      return
+    }
+    dim.classList.add('shade')
+    dim.style.cssText = 'position:fixed'
+    dim.style.left = sel.x + 'px'
+    dim.style.top = sel.y + 'px'
+    dim.style.width = sel.w + 'px'
+    dim.style.height = sel.h + 'px'
+    selBox.style.display = 'block'
+    selBox.style.left = sel.x + 'px'
+    selBox.style.top = sel.y + 'px'
+    selBox.style.width = sel.w + 'px'
+    selBox.style.height = sel.h + 'px'
+    sizeLabel.style.display = 'block'
+    sizeLabel.textContent = `${Math.round(sel.w)} × ${Math.round(sel.h)}`
+    const lx = Math.min(sel.x + sel.w, W) - 4
+    const ly = Math.min(sel.y + sel.h, H) + 6
+    sizeLabel.style.left = Math.max(4, lx - sizeLabel.offsetWidth) + 'px'
+    sizeLabel.style.top = Math.min(H - 26, ly) + 'px'
+    if (state === 'selected') positionToolbar()
+  }
+
+  function positionToolbar() {
+    toolbar.style.display = 'flex'
+    const tw = toolbar.offsetWidth
+    const th = toolbar.offsetHeight
+    let x = sel.x + sel.w / 2 - tw / 2
+    x = Math.max(8, Math.min(W - tw - 8, x))
+    let y = sel.y + sel.h + 12
+    if (y + th > H - 8) y = sel.y - th - 12
+    if (y < 8) y = Math.max(8, H - th - 8)
+    toolbar.style.left = x + 'px'
+    toolbar.style.top = y + 'px'
+  }
+
+  // ---------- 标注绘制 ----------
+  function clipToSel(ctx) {
+    if (!sel) return
+    ctx.beginPath()
+    ctx.rect(sel.x - 1, sel.y - 1, sel.w + 2, sel.h + 2)
+    ctx.clip()
+  }
+
+  function fontSpec(size) {
+    return `600 ${size}px -apple-system, "PingFang SC", "MiSans", "Microsoft YaHei UI", sans-serif`
+  }
+
+  function strokeSmoothPath(ctx, pts, width, strokeColor, alpha) {
+    if (pts.length === 1) {
+      ctx.beginPath()
+      ctx.arc(pts[0].x, pts[0].y, width / 2, 0, Math.PI * 2)
+      ctx.fillStyle = strokeColor
+      ctx.globalAlpha = alpha
+      ctx.fill()
+      return
+    }
+    ctx.beginPath()
+    ctx.moveTo(pts[0].x, pts[0].y)
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2
+      const my = (pts[i].y + pts[i + 1].y) / 2
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my)
+    }
+    const last = pts[pts.length - 1]
+    ctx.lineTo(last.x, last.y)
+    ctx.lineWidth = width
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = strokeColor
+    ctx.globalAlpha = alpha
+    ctx.stroke()
+    ctx.globalAlpha = 1
+  }
+
+  function drawMosaicSegment(ctx, from, to, brush) {
+    // 沿线段按 brush/2 步长盖章：小图放大 8 倍回贴 → 块状马赛克
+    ctx.save()
+    clipToSel(ctx)
+    ctx.imageSmoothingEnabled = false
+    const dist = Math.hypot(to.x - from.x, to.y - from.y)
+    const step = Math.max(brush / 2, 2)
+    const n = Math.max(1, Math.ceil(dist / step))
+    for (let i = 1; i <= n; i++) {
+      const p = { x: from.x + ((to.x - from.x) * i) / n, y: from.y + ((to.y - from.y) * i) / n }
+      const sw = brush / MOSAIC_BLOCK
+      ctx.drawImage(
+        mosaicCanvas,
+        p.x / MOSAIC_BLOCK - sw / 2,
+        p.y / MOSAIC_BLOCK - sw / 2,
+        sw,
+        sw,
+        p.x - brush / 2,
+        p.y - brush / 2,
+        brush,
+        brush
+      )
+    }
+    ctx.restore()
+  }
+
+  // incremental = { from, to }：绘制中的增量段（性能考虑，整笔完成后再全量重绘）
+  function drawShape(ctx, s, incremental) {
+    ctx.save()
+    clipToSel(ctx)
+    const width = s.width || 2
+    if (s.type === 'pen' || s.type === 'marker') {
+      const pts = incremental ? [incremental.from, incremental.to] : s.points
+      strokeSmoothPath(ctx, pts, s.type === 'marker' ? width * 5 : width, s.color, s.type === 'marker' ? 0.35 : 1)
+    } else if (s.type === 'rect') {
+      ctx.lineWidth = width
+      ctx.strokeStyle = s.color
+      ctx.strokeRect(s.x0, s.y0, s.x1 - s.x0, s.y1 - s.y0)
+    } else if (s.type === 'ellipse') {
+      ctx.beginPath()
+      ctx.ellipse((s.x0 + s.x1) / 2, (s.y0 + s.y1) / 2, Math.abs(s.x1 - s.x0) / 2, Math.abs(s.y1 - s.y0) / 2, 0, 0, Math.PI * 2)
+      ctx.lineWidth = width
+      ctx.strokeStyle = s.color
+      ctx.stroke()
+    } else if (s.type === 'arrow') {
+      const dx = s.x1 - s.x0
+      const dy = s.y1 - s.y0
+      const ang = Math.atan2(dy, dx)
+      const hl = Math.max(11, width * 3)
+      ctx.beginPath()
+      ctx.moveTo(s.x0, s.y0)
+      ctx.lineTo(s.x1, s.y1)
+      ctx.lineWidth = width
+      ctx.lineCap = 'round'
+      ctx.strokeStyle = s.color
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(s.x1, s.y1)
+      ctx.lineTo(s.x1 - hl * Math.cos(ang - 0.42), s.y1 - hl * Math.sin(ang - 0.42))
+      ctx.lineTo(s.x1 - hl * Math.cos(ang + 0.42), s.y1 - hl * Math.sin(ang + 0.42))
+      ctx.closePath()
+      ctx.fillStyle = s.color
+      ctx.fill()
+    } else if (s.type === 'mosaic') {
+      if (incremental) {
+        drawMosaicSegment(ctx, incremental.from, incremental.to, width * 5 + 8)
+      } else {
+        let prev = s.points[0]
+        for (let i = 1; i < s.points.length; i++) {
+          drawMosaicSegment(ctx, prev, s.points[i], width * 5 + 8)
+          prev = s.points[i]
+        }
+      }
+    } else if (s.type === 'text') {
+      ctx.font = fontSpec(s.size)
+      ctx.textBaseline = 'top'
+      ctx.fillStyle = s.color
+      ctx.fillText(s.text, s.x, s.y)
+    }
+    ctx.restore()
+  }
+
+  function redrawAll() {
+    annotCtx.clearRect(0, 0, W, H)
+    for (const s of shapes) drawShape(annotCtx, s)
+    undoBtn.disabled = !shapes.length
+    redoBtn.disabled = !redoShapes.length
+  }
+
+  // ---------- 放大镜 ----------
+  function ensurePixels() {
+    if (pixels || !bgImg) return
+    pixels = bgCtx.getImageData(0, 0, bgCanvas.width, bgCanvas.height)
+  }
+
+  function pixelAt(lx, ly) {
+    ensurePixels()
+    if (!pixels) return [0, 0, 0]
+    const px = Math.min(pixels.width - 1, Math.max(0, Math.round(lx * dpr)))
+    const py = Math.min(pixels.height - 1, Math.max(0, Math.round(ly * dpr)))
+    const i = (py * pixels.width + px) * 4
+    return [pixels.data[i], pixels.data[i + 1], pixels.data[i + 2]]
+  }
+
+  const hex2 = (v) => v.toString(16).padStart(2, '0').toUpperCase()
+
+  function drawMagnifier(p) {
+    if (!bgImg) {
+      hideMagnifier()
+      return
+    }
+    mag.style.display = 'block'
+    magHex.style.display = 'block'
+    let mx = p.x + 26
+    let my = p.y + 26
+    if (mx + MAG > W - 4) mx = p.x - MAG - 26
+    if (my + MAG + 24 > H - 4) my = p.y - MAG - 26
+    mag.style.left = Math.max(4, mx) + 'px'
+    mag.style.top = Math.max(4, my) + 'px'
+    magHex.style.left = Math.max(4, mx + MAG / 2 - 30) + 'px'
+    magHex.style.top = Math.max(4, my) + MAG + 6 + 'px'
+
+    magCtx.clearRect(0, 0, MAG, MAG)
+    magCtx.save()
+    magCtx.beginPath()
+    magCtx.arc(MAG / 2, MAG / 2, MAG / 2 - 1, 0, Math.PI * 2)
+    magCtx.clip()
+    const srcL = MAG / ZOOM // 可见逻辑像素数
+    magCtx.imageSmoothingEnabled = false
+    magCtx.drawImage(
+      bgImg,
+      (p.x - srcL / 2) * dpr,
+      (p.y - srcL / 2) * dpr,
+      srcL * dpr,
+      srcL * dpr,
+      0,
+      0,
+      MAG,
+      MAG
+    )
+    magCtx.imageSmoothingEnabled = true
+    // 像素网格
+    magCtx.strokeStyle = 'rgba(0,0,0,0.14)'
+    magCtx.lineWidth = 1
+    magCtx.beginPath()
+    for (let g = ZOOM; g < MAG; g += ZOOM) {
+      magCtx.moveTo(g, 0)
+      magCtx.lineTo(g, MAG)
+      magCtx.moveTo(0, g)
+      magCtx.lineTo(MAG, g)
+    }
+    magCtx.stroke()
+    // 中心十字
+    magCtx.strokeStyle = 'rgba(255,255,255,0.95)'
+    magCtx.beginPath()
+    magCtx.moveTo(MAG / 2 - 7, MAG / 2)
+    magCtx.lineTo(MAG / 2 + 7, MAG / 2)
+    magCtx.moveTo(MAG / 2, MAG / 2 - 7)
+    magCtx.lineTo(MAG / 2, MAG / 2 + 7)
+    magCtx.stroke()
+    magCtx.restore()
+
+    const [r, g, b] = pixelAt(p.x, p.y)
+    magHex.textContent = `#${hex2(r)}${hex2(g)}${hex2(b)}`
+  }
+
+  function hideMagnifier() {
+    mag.style.display = 'none'
+    magHex.style.display = 'none'
+  }
+
+  // ---------- 导出 ----------
+  function exportSel() {
+    const x = Math.max(0, Math.round(sel.x * dpr))
+    const y = Math.max(0, Math.round(sel.y * dpr))
+    const w = Math.min(bgCanvas.width - x, Math.round(sel.w * dpr))
+    const h = Math.min(bgCanvas.height - y, Math.round(sel.h * dpr))
+    const out = document.createElement('canvas')
+    out.width = w
+    out.height = h
+    const c = out.getContext('2d')
+    c.drawImage(bgCanvas, x, y, w, h, 0, 0, w, h)
+    c.drawImage(annotCanvas, x, y, w, h, 0, 0, w, h)
+    return out.toDataURL('image/png')
+  }
+
+  function doAction(action) {
+    if (!sel || sel.w < MIN_SEL || sel.h < MIN_SEL) return
+    commitTextIfAny()
+    const dataUrl = exportSel()
+    api.overlay.finish(action, {
+      dataUrl,
+      rect: { x: Math.round(sel.x), y: Math.round(sel.y), w: Math.round(sel.w), h: Math.round(sel.h) },
+      screenX: Math.round(originX + sel.x + sel.w / 2),
+      screenY: Math.round(originY + sel.y + sel.h / 2),
+      opacity: pinOpacity,
+    })
+  }
+
+  // ---------- 工具条 ----------
+  function setTool(t) {
+    tool = tool === t ? null : t
+    document.querySelectorAll('#toolbar .tb[data-tool]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.tool === tool)
+    })
+    hideTextInput(false)
+  }
+
+  function buildToolbar() {
+    for (const c of COLORS) {
+      const b = document.createElement('button')
+      b.className = 'sw' + (c === color ? ' active' : '')
+      b.style.background = c
+      b.dataset.c = c
+      b.title = c
+      b.addEventListener('click', () => {
+        color = c
+        document.querySelectorAll('.sw').forEach((x) => x.classList.toggle('active', x.dataset.c === c))
+      })
+      swatchesBox.appendChild(b)
+    }
+    widthsBox.querySelectorAll('.wd').forEach((b) => {
+      b.addEventListener('click', () => {
+        strokeW = Number(b.dataset.w)
+        widthsBox.querySelectorAll('.wd').forEach((x) => x.classList.toggle('active', x === b))
+      })
+    })
+    widthsBox.querySelector(`[data-w="${strokeW}"]`)?.classList.add('active')
+    document.querySelectorAll('#toolbar .tb[data-tool]').forEach((b) => {
+      b.addEventListener('click', () => setTool(b.dataset.tool))
+    })
+    undoBtn.addEventListener('click', undo)
+    redoBtn.addEventListener('click', redo)
+    $('#copyBtn').addEventListener('click', () => doAction('copy'))
+    $('#saveBtn').addEventListener('click', () => doAction('save'))
+    $('#pinBtn').addEventListener('click', () => doAction('pin'))
+    $('#closeBtn').addEventListener('click', () => api.overlay.cancel())
+  }
+
+  function undo() {
+    if (!shapes.length) return
+    redoShapes.push(shapes.pop())
+    redrawAll()
+  }
+  function redo() {
+    if (!redoShapes.length) return
+    shapes.push(redoShapes.pop())
+    redrawAll()
+  }
+
+  // ---------- 文字输入 ----------
+  function hideTextInput(commit) {
+    if (textInput.style.display !== 'block') return
+    const val = textInput.value.trim()
+    textInput.style.display = 'none'
+    textInput.value = ''
+    if (commit && val && textPos) {
+      shapes.push({ type: 'text', x: textPos.x, y: textPos.y, text: val, color, size: 14 + strokeW * 3 })
+      redrawAll()
+    }
+    textPos = null
+  }
+  const commitTextIfAny = () => hideTextInput(true)
+
+  // ---------- 命中检测 ----------
+  function handleAt(p) {
+    if (!sel) return ''
+    const pts = {
+      nw: [sel.x, sel.y], n: [sel.x + sel.w / 2, sel.y], ne: [sel.x + sel.w, sel.y],
+      w: [sel.x, sel.y + sel.h / 2], e: [sel.x + sel.w, sel.y + sel.h / 2],
+      sw: [sel.x, sel.y + sel.h], s: [sel.x + sel.w / 2, sel.y + sel.h], se: [sel.x + sel.w, sel.y + sel.h],
+    }
+    for (const [dir, [hx, hy]] of Object.entries(pts)) {
+      if (Math.abs(p.x - hx) <= 6 && Math.abs(p.y - hy) <= 6) return dir
+    }
+    return ''
+  }
+  const insideSel = (p) =>
+    sel && p.x >= sel.x && p.x <= sel.x + sel.w && p.y >= sel.y && p.y <= sel.y + sel.h
+
+  function applyResize(p) {
+    const MIN = 8
+    let s = { ...moveOrig.sel }
+    if (resizeDir.includes('w')) {
+      const right = s.x + s.w
+      s.x = Math.min(Math.max(0, p.x), right - MIN)
+      s.w = right - s.x
+    }
+    if (resizeDir.includes('e')) s.w = Math.min(W, Math.max(p.x, s.x + MIN)) - s.x
+    if (resizeDir.includes('n')) {
+      const bot = s.y + s.h
+      s.y = Math.min(Math.max(0, p.y), bot - MIN)
+      s.h = bot - s.y
+    }
+    if (resizeDir.includes('s')) s.h = Math.min(H, Math.max(p.y, s.y + MIN)) - s.y
+    sel = s
+    updateSelUI()
+  }
+
+  // ---------- 鼠标 ----------
+  const onToolbar = (e) => !!(e.target.closest && e.target.closest('#toolbar'))
+
+  window.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || onToolbar(e)) return
+    // 捕获指针：拖拽移出窗口（多显示器边缘）仍能收到 move/up
+    try {
+      document.body.setPointerCapture(e.pointerId)
+    } catch {
+      /* 忽略 */
+    }
+    commitTextIfAny()
+    const p = { x: e.clientX, y: e.clientY }
+    if (state === 'selected') {
+      const h = handleAt(p)
+      if (h) {
+        state = 'resizing'
+        resizeDir = h
+        moveOrig = { sel: { ...sel } }
+        return
+      }
+      if (tool) {
+        state = 'drawing'
+        startShape(p)
+        return
+      }
+      if (insideSel(p)) {
+        state = 'moving'
+        moveOrig = { sel: { ...sel }, px: p.x, py: p.y }
+        toolbar.style.display = 'none'
+        return
+      }
+    }
+    // 选区外或空闲：开始新的框选（丢弃已有标注）
+    if (sel) {
+      shapes = []
+      redoShapes = []
+      redrawAll()
+    }
+    state = 'dragging'
+    sel = { x: p.x, y: p.y, w: 0, h: 0 }
+    dragStart = p
+    toolbar.style.display = 'none'
+    updateSelUI()
+  })
+
+  window.addEventListener('pointermove', (e) => {
+    const p = { x: e.clientX, y: e.clientY }
+    if (onToolbar(e)) {
+      hideMagnifier()
+      return
+    }
+    if (state === 'idle' || state === 'dragging') {
+      drawMagnifier(p)
+    } else {
+      hideMagnifier()
+    }
+    if (state === 'dragging') {
+      sel = {
+        x: Math.min(dragStart.x, p.x),
+        y: Math.min(dragStart.y, p.y),
+        w: Math.abs(p.x - dragStart.x),
+        h: Math.abs(p.y - dragStart.y),
+      }
+      updateSelUI()
+    } else if (state === 'moving') {
+      sel = {
+        ...moveOrig.sel,
+        x: Math.min(Math.max(0, moveOrig.sel.x + p.x - moveOrig.px), W - moveOrig.sel.w),
+        y: Math.min(Math.max(0, moveOrig.sel.y + p.y - moveOrig.py), H - moveOrig.sel.h),
+      }
+      updateSelUI()
+    } else if (state === 'resizing') {
+      applyResize(p)
+    } else if (state === 'drawing') {
+      extendShape(p)
+    }
+  })
+
+  window.addEventListener('pointerup', (e) => {
+    if (e.button !== 0) return
+    if (state === 'dragging') {
+      if (!sel || sel.w < MIN_SEL || sel.h < MIN_SEL) {
+        sel = null
+        state = 'idle'
+      } else {
+        state = 'selected'
+      }
+      updateSelUI()
+    } else if (state === 'moving' || state === 'resizing') {
+      state = 'selected'
+      updateSelUI()
+    } else if (state === 'drawing') {
+      state = 'selected'
+      curShape = null
+      lastPt = null
+      redrawAll()
+      updateSelUI()
+    }
+  })
+
+  window.addEventListener('dblclick', (e) => {
+    if (onToolbar(e)) return
+    if (sel && !tool) doAction('copy')
+  })
+
+  window.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    if (!sel) {
+      api.overlay.cancel()
+    } else if (shapes.length === 0 && !tool) {
+      api.overlay.cancel()
+    }
+  })
+
+  function startShape(p) {
+    const base = { color, width: strokeW }
+    if (tool === 'pen' || tool === 'marker' || tool === 'mosaic') {
+      curShape = { ...base, type: tool, points: [p] }
+      shapes.push(curShape)
+      lastPt = p
+    } else if (tool === 'text') {
+      startTextInput(p)
+      state = 'selected'
+    } else {
+      curShape = { ...base, type: tool, x0: p.x, y0: p.y, x1: p.x, y1: p.y }
+      shapes.push(curShape)
+    }
+  }
+
+  function extendShape(p) {
+    if (!curShape) return
+    if (curShape.type === 'pen' || curShape.type === 'marker' || curShape.type === 'mosaic') {
+      drawShape(annotCtx, curShape, { from: lastPt, to: p })
+      curShape.points.push(p)
+      lastPt = p
+    } else {
+      curShape.x1 = p.x
+      curShape.y1 = p.y
+      redrawAll()
+      drawShape(annotCtx, curShape)
+    }
+  }
+
+  function startTextInput(p) {
+    textPos = { x: p.x, y: p.y }
+    textInput.style.left = p.x + 'px'
+    textInput.style.top = p.y - 3 + 'px'
+    textInput.style.fontSize = 14 + strokeW * 3 + 'px'
+    textInput.style.color = color
+    textInput.style.display = 'block'
+    textInput.value = ''
+    setTimeout(() => textInput.focus(), 0)
+  }
+
+  textInput.addEventListener('keydown', (e) => {
+    e.stopPropagation()
+    if (e.key === 'Enter') hideTextInput(true)
+    else if (e.key === 'Escape') hideTextInput(false)
+  })
+
+  // ---------- 键盘 ----------
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      api.overlay.cancel()
+      return
+    }
+    const mod = e.ctrlKey || e.metaKey
+    const k = e.key.toLowerCase()
+    if (mod && k === 'c') return doAction('copy')
+    if (mod && k === 's') {
+      e.preventDefault()
+      return doAction('save')
+    }
+    if (mod && k === 'z') {
+      e.preventDefault()
+      return e.shiftKey ? redo() : undo()
+    }
+    if (mod && k === 'y') {
+      e.preventDefault()
+      return redo()
+    }
+    if (mod) return
+    if (e.key === 'Enter' && sel) return doAction('copy')
+    const map = { r: 'rect', e: 'ellipse', a: 'arrow', p: 'pen', m: 'marker', t: 'text', b: 'mosaic' }
+    if (map[k] && sel) setTool(map[k])
+  })
+
+  // ---------- 初始化 ----------
+  api.on('capture:init', (p) => {
+    displayId = p.displayId
+    dpr = p.dpr
+    W = p.width
+    H = p.height
+    originX = p.x || 0
+    originY = p.y || 0
+    pinOpacity = p.pinOpacity || 100
+    pixels = null
+    shapes = []
+    redoShapes = []
+    sel = null
+    tool = null
+    state = 'idle'
+    hideTextInput(false)
+    document.querySelectorAll('#toolbar .tb[data-tool]').forEach((b) => b.classList.remove('active'))
+    bgCtx = setupCanvas(bgCanvas)
+    annotCtx = setupCanvas(annotCanvas)
+    mag.width = Math.round(MAG * dpr)
+    mag.height = Math.round(MAG * dpr)
+    magCtx = mag.getContext('2d')
+    magCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    bgImg = new Image()
+    bgImg.onload = () => {
+      bgCtx.drawImage(bgImg, 0, 0, W, H)
+      annotCtx.clearRect(0, 0, W, H)
+      buildMosaic()
+      redrawAll()
+      updateSelUI()
+      api.overlay.captureReady(displayId)
+    }
+    bgImg.onerror = () => api.overlay.captureReady(displayId)
+    bgImg.src = p.dataUrl
+  })
+
+  buildToolbar()
+  updateSelUI()
+  api.overlay.ready()
+})()

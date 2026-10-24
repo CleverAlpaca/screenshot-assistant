@@ -1,0 +1,12 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 运行/临时文件
+*.log
+*.tmp
+.test-*
+
+# 系统文件
+.DS_Store
+Thumbs.db

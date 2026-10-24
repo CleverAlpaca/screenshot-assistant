@@ -1,0 +1,36 @@
+/* 倒计时小窗：居中玻璃圆角卡片 + 渐变大数字 */
+html, body { width: 100%; height: 100%; background: transparent; }
+body { display: flex; align-items: center; justify-content: center; }
+
+#card {
+  width: 150px;
+  height: 150px;
+  border-radius: 28px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-pop), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+#num {
+  font-size: 56px;
+  line-height: 1.1;
+  animation: pop 0.9s ease;
+}
+#num.tick { animation: pop 0.32s ease; }
+
+@keyframes pop {
+  from { transform: scale(1.35); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+#tip {
+  font-size: 11px;
+  color: var(--text-3);
+}

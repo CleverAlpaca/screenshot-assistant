@@ -1,0 +1,240 @@
+/* ============ 截图助手 · 玻璃拟态设计系统（与时光助手同一套 token） ============
+   浅蓝底 + 天蓝/淡紫/粉紫/薄荷光斑背景 + 白色高透明玻璃卡片
+   深浅色由 html[data-theme] 切换；主色 = 天空蓝渐变 */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --accent: #3d8be9;
+  --accent-2: #8fa9f5;
+  --accent-grad: linear-gradient(135deg, #3886e3 0%, #6fa6f2 100%);
+  --accent-hover: #529bf0;
+  --accent-soft: rgba(61, 139, 233, 0.16);
+  --green: #27a875;
+  --green-soft: rgba(39, 168, 117, 0.14);
+  --blue: #2ba3e6;
+  --blue-soft: rgba(43, 163, 230, 0.14);
+  --purple: #9d7bea;
+  --purple-soft: rgba(157, 123, 234, 0.16);
+  --orange: #ef9f43;
+  --danger: #e5484d;
+
+  --bg-base: #e9eef7;
+  --glass: rgba(255, 255, 255, 0.36);
+  --glass-strong: rgba(255, 255, 255, 0.52);
+  --glass-weak: rgba(255, 255, 255, 0.22);
+  --glass-blur: blur(24px) saturate(150%);
+  --glass-blur-lite: blur(14px) saturate(140%);
+  --border-glass: rgba(255, 255, 255, 0.75);
+  --border-weak: rgba(72, 94, 142, 0.12);
+  --bg-hover: rgba(255, 255, 255, 0.5);
+  --text: #1a2036;
+  --text-2: #5b6178;
+  --text-3: #a0a6bc;
+  --shadow-card: 0 8px 28px rgba(84, 104, 160, 0.12);
+  --shadow-pop: 0 16px 48px rgba(60, 80, 140, 0.24);
+  --ring-track: rgba(96, 118, 168, 0.24);
+
+  --bg-image:
+    radial-gradient(680px circle at 8% 6%, rgba(168, 216, 240, 0.85), transparent 58%),
+    radial-gradient(720px circle at 96% 0%, rgba(214, 199, 246, 0.75), transparent 58%),
+    radial-gradient(760px circle at 100% 62%, rgba(242, 205, 231, 0.62), transparent 60%),
+    radial-gradient(640px circle at 12% 100%, rgba(197, 232, 229, 0.6), transparent 58%);
+
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  --accent: #5d9cf2;
+  --accent-2: #93aef7;
+  --accent-grad: linear-gradient(135deg, #4e8df2 0%, #7fa5f7 100%);
+  --accent-hover: #74adf5;
+  --accent-soft: rgba(93, 156, 242, 0.2);
+  --green: #3ddc97;
+  --green-soft: rgba(61, 220, 151, 0.16);
+  --blue: #45b3ee;
+  --blue-soft: rgba(69, 179, 238, 0.16);
+  --purple: #ab8cf5;
+  --purple-soft: rgba(171, 140, 245, 0.2);
+  --orange: #ffc06b;
+  --danger: #ff6b6b;
+
+  --bg-base: #0d1322;
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass-strong: rgba(255, 255, 255, 0.095);
+  --glass-weak: rgba(255, 255, 255, 0.032);
+  --glass-blur: blur(26px) saturate(160%);
+  --glass-blur-lite: blur(14px) saturate(140%);
+  --border-glass: rgba(255, 255, 255, 0.13);
+  --border-weak: rgba(255, 255, 255, 0.06);
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --text: #eef1fa;
+  --text-2: rgba(232, 238, 250, 0.58);
+  --text-3: rgba(232, 238, 250, 0.34);
+  --shadow-card: 0 10px 34px rgba(0, 0, 0, 0.34);
+  --shadow-pop: 0 18px 56px rgba(0, 0, 0, 0.5);
+  --ring-track: rgba(255, 255, 255, 0.13);
+
+  --bg-image:
+    radial-gradient(680px circle at 8% 6%, rgba(64, 132, 235, 0.34), transparent 58%),
+    radial-gradient(720px circle at 96% 0%, rgba(112, 124, 246, 0.28), transparent 58%),
+    radial-gradient(760px circle at 100% 62%, rgba(58, 190, 235, 0.16), transparent 60%),
+    radial-gradient(640px circle at 12% 100%, rgba(158, 120, 242, 0.22), transparent 58%);
+
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+
+body {
+  font-family: -apple-system, "PingFang SC", "MiSans", "HarmonyOS Sans SC", "Segoe UI",
+    "Microsoft YaHei UI", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+input, textarea, select { user-select: text; font-family: inherit; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-glass);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track { background: transparent; }
+
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+button:disabled { opacity: 0.38; cursor: default; }
+
+/* ---- 通用控件（设置窗 / 倒计时窗用） ---- */
+
+.card {
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-glass);
+  border-radius: 18px;
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  padding: 16px 18px;
+}
+
+.card h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+}
+
+.row + .row { border-top: 1px solid var(--border-weak); }
+
+.row .label { color: var(--text); }
+.row .hint { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+.btn {
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  transition: all 0.12s;
+}
+.btn-primary {
+  background: var(--accent-grad);
+  color: #fff;
+  box-shadow: 0 4px 18px var(--accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-secondary {
+  background: var(--glass-weak);
+  border: 1px solid var(--border-glass);
+  color: var(--text);
+}
+.btn-secondary:hover { background: var(--bg-hover); }
+
+/* 分段控件（仿 macOS） */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--glass-weak);
+  border: 1px solid var(--border-weak);
+  border-radius: 11px;
+  padding: 2px;
+}
+.seg-item {
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-2);
+  transition: all 0.15s;
+}
+.seg-item.active {
+  background: var(--glass-strong);
+  color: var(--text);
+  box-shadow: 0 1px 6px rgba(60, 80, 140, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* iOS 开关 */
+.toggle {
+  width: 42px;
+  height: 25px;
+  border-radius: 13px;
+  background: var(--ring-track);
+  position: relative;
+  transition: background 0.18s;
+  flex: none;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(40, 55, 100, 0.3);
+  transition: transform 0.18s;
+}
+.toggle.on { background: var(--accent-grad); }
+.toggle.on::after { transform: translateX(17px); }
+
+/* 滑块 */
+input[type='range'] {
+  -webkit-appearance: none;
+  width: 150px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ring-track);
+  outline: none;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid var(--border-glass);
+  box-shadow: 0 2px 6px rgba(40, 55, 100, 0.3);
+  cursor: pointer;
+}
+
+/* 渐变大数字（倒计时用，与时光助手统计页一致） */
+.grad-num {
+  font-size: 54px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
