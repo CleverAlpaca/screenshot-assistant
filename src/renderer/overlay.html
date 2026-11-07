@@ -64,14 +64,12 @@
     </button>
 
     <i class="sep"></i>
-    <span id="swatches"></span>
-
-    <i class="sep"></i>
-    <span id="widths">
-      <button class="wd" data-w="2" title="细"><i style="width:4px;height:4px"></i></button>
-      <button class="wd" data-w="4" title="中"><i style="width:7px;height:7px"></i></button>
-      <button class="wd" data-w="6" title="粗"><i style="width:10px;height:10px"></i></button>
-    </span>
+    <button class="tb" id="colorBtn" title="颜色">
+      <span id="colorDot" class="dot"></span>
+    </button>
+    <button class="tb" id="widthBtn" title="粗细">
+      <span id="widthDot" class="wdot"></span>
+    </button>
 
     <i class="sep"></i>
     <button class="tb" id="ocrBtn" title="文字识别 (O)">
@@ -95,6 +93,17 @@
   </div>
 
   <input id="textInput" spellcheck="false" />
+
+  <div id="tbPop" style="display:none">
+    <div class="pop-title">颜色</div>
+    <div id="popSwatches"></div>
+    <div class="pop-title">粗细</div>
+    <div id="popWidths">
+      <button class="pwd" data-w="2" title="细"><i style="width:4px;height:4px"></i></button>
+      <button class="pwd" data-w="4" title="中"><i style="width:7px;height:7px"></i></button>
+      <button class="pwd" data-w="6" title="粗"><i style="width:10px;height:10px"></i></button>
+    </div>
+  </div>
 
   <div id="ocrPanel" style="display:none">
     <div class="ocr-head">

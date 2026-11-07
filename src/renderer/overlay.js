@@ -17,8 +17,13 @@
   const winHl = $('#winHl')
   const undoBtn = $('#undoBtn')
   const redoBtn = $('#redoBtn')
-  const swatchesBox = $('#swatches')
-  const widthsBox = $('#widths')
+  const colorBtn = $('#colorBtn')
+  const widthBtn = $('#widthBtn')
+  const colorDot = $('#colorDot')
+  const widthDot = $('#widthDot')
+  const tbPop = $('#tbPop')
+  const popSwatches = $('#popSwatches')
+  const popWidths = $('#popWidths')
   const ocrBtn = $('#ocrBtn')
   const ocrPanel = $('#ocrPanel')
   const ocrTitle = $('#ocrTitle')
@@ -56,6 +61,10 @@
   let ocrPanelOpen = false
   let ocrBusy = false
   let toastTimer = null
+
+  let popOpen = false // 颜色/粗细弹层
+  let tbOff = { x: 0, y: 0 } // 工具条手动拖拽偏移
+  let tbDrag = null // { sx, sy, ox, oy }
 
   let winHlRect = null
   let winQueryBusy = false
@@ -102,8 +111,14 @@
     selBox.style.top = sel.y + 'px'
     selBox.style.width = sel.w + 'px'
     selBox.style.height = sel.h + 'px'
+    // 贴屏幕边缘时给对应边的手柄做内移，避免被裁切
+    selBox.classList.toggle('at-top', sel.y <= 1)
+    selBox.classList.toggle('at-bottom', sel.y + sel.h >= H - 1)
+    selBox.classList.toggle('at-left', sel.x <= 1)
+    selBox.classList.toggle('at-right', sel.x + sel.w >= W - 1)
     sizeLabel.style.display = 'block'
-    sizeLabel.textContent = `${Math.round(sel.w)} × ${Math.round(sel.h)}`
+    // 显示物理像素：与导出文件的实际尺寸一致（高 DPI 屏 logical ≠ physical）
+    sizeLabel.textContent = `${Math.round(sel.w * dpr)} × ${Math.round(sel.h * dpr)}`
     const lx = Math.min(sel.x + sel.w, W) - 4
     const ly = Math.min(sel.y + sel.h, H) + 6
     sizeLabel.style.left = Math.max(4, lx - sizeLabel.offsetWidth) + 'px'
@@ -112,14 +127,21 @@
   }
 
   function positionToolbar() {
+    const wasHidden = toolbar.style.display !== 'flex'
     toolbar.style.display = 'flex'
+    if (wasHidden) {
+      // 入场动画只在「隐藏 → 显示」时播一次
+      toolbar.classList.remove('tb-in')
+      void toolbar.offsetWidth
+      toolbar.classList.add('tb-in')
+    }
     const tw = toolbar.offsetWidth
     const th = toolbar.offsetHeight
-    let x = sel.x + sel.w / 2 - tw / 2
-    x = Math.max(8, Math.min(W - tw - 8, x))
-    let y = sel.y + sel.h + 12
-    if (y + th > H - 8) y = sel.y - th - 12
-    if (y < 8) y = Math.max(8, H - th - 8)
+    // 候选位置：选区下方 → 选区上方 → 选区内底部；手动拖拽偏移叠加后整体夹紧，保证完整可见
+    let y = sel.y + sel.h + 12 + tbOff.y
+    if (y + th > H - 8) y = sel.y - th - 12 + tbOff.y
+    if (y + th > H - 8 || y < 8) y = Math.max(8, Math.min(H - th - 8, sel.y + sel.h - th - 12 + tbOff.y))
+    const x = Math.max(8, Math.min(W - tw - 8, sel.x + sel.w / 2 - tw / 2 + tbOff.x))
     toolbar.style.left = x + 'px'
     toolbar.style.top = y + 'px'
   }
@@ -326,7 +348,7 @@
     magCtx.restore()
 
     const [r, g, b] = pixelAt(p.x, p.y)
-    magHex.textContent = `#${hex2(r)}${hex2(g)}${hex2(b)}`
+    magHex.textContent = `#${hex2(r)}${hex2(g)}${hex2(b)} · ${Math.round(p.x * dpr)},${Math.round(p.y * dpr)}`
   }
 
   function hideMagnifier() {
@@ -371,6 +393,37 @@
     hideTextInput(false)
   }
 
+  function syncStyleDots() {
+    colorDot.style.background = color
+    const d = 2 + strokeW * 2 // 2→6px 4→10px 6→14px
+    widthDot.style.width = d + 'px'
+    widthDot.style.height = d + 'px'
+  }
+
+  function togglePop() {
+    popOpen ? closePop() : openPop()
+  }
+
+  function openPop() {
+    popOpen = true
+    tbPop.style.display = 'block'
+    const br = colorBtn.getBoundingClientRect()
+    const pw = tbPop.offsetWidth
+    const ph = tbPop.offsetHeight
+    let x = br.left + br.width / 2 - pw / 2
+    x = Math.max(8, Math.min(W - pw - 8, x))
+    let y = toolbar.getBoundingClientRect().top - ph - 8
+    if (y < 8) y = toolbar.getBoundingClientRect().bottom + 8
+    tbPop.style.left = x + 'px'
+    tbPop.style.top = y + 'px'
+  }
+
+  function closePop() {
+    if (!popOpen) return
+    popOpen = false
+    tbPop.style.display = 'none'
+  }
+
   function buildToolbar() {
     for (const c of COLORS) {
       const b = document.createElement('button')
@@ -380,17 +433,23 @@
       b.title = c
       b.addEventListener('click', () => {
         color = c
-        document.querySelectorAll('.sw').forEach((x) => x.classList.toggle('active', x.dataset.c === c))
+        popSwatches.querySelectorAll('.sw').forEach((x) => x.classList.toggle('active', x.dataset.c === c))
+        syncStyleDots()
       })
-      swatchesBox.appendChild(b)
+      popSwatches.appendChild(b)
     }
-    widthsBox.querySelectorAll('.wd').forEach((b) => {
+    popWidths.querySelectorAll('.pwd').forEach((b) => {
       b.addEventListener('click', () => {
         strokeW = Number(b.dataset.w)
-        widthsBox.querySelectorAll('.wd').forEach((x) => x.classList.toggle('active', x === b))
+        popWidths.querySelectorAll('.pwd').forEach((x) => x.classList.toggle('active', x === b))
+        syncStyleDots()
+        closePop()
       })
     })
-    widthsBox.querySelector(`[data-w="${strokeW}"]`)?.classList.add('active')
+    popWidths.querySelector(`[data-w="${strokeW}"]`)?.classList.add('active')
+    syncStyleDots()
+    colorBtn.addEventListener('click', togglePop)
+    widthBtn.addEventListener('click', togglePop)
     document.querySelectorAll('#toolbar .tb[data-tool]').forEach((b) => {
       b.addEventListener('click', () => setTool(b.dataset.tool))
     })
@@ -544,9 +603,26 @@
   }
 
   // ---------- 窗口智能识别 ----------
+  function dimUniform() {
+    // 无明确目标时：整屏均匀压暗
+    dim.classList.remove('shade')
+    dim.style.cssText = 'position:fixed;inset:0'
+  }
+
+  function dimShadeAt(x, y, w, h) {
+    // 目标区域保持明亮，其余压暗
+    dim.classList.add('shade')
+    dim.style.cssText = 'position:fixed'
+    dim.style.left = x + 'px'
+    dim.style.top = y + 'px'
+    dim.style.width = w + 'px'
+    dim.style.height = h + 'px'
+  }
+
   function hideWinHl() {
     winHlRect = null
     winHl.style.display = 'none'
+    if (state === 'idle' && !sel) dimUniform() // 无高亮目标时回到整屏均匀压暗
   }
 
   function updateWinHl(r) {
@@ -562,6 +638,7 @@
     winHl.style.top = winHlRect.y + 'px'
     winHl.style.width = winHlRect.w + 'px'
     winHl.style.height = winHlRect.h + 'px'
+    dimShadeAt(winHlRect.x, winHlRect.y, winHlRect.w, winHlRect.h) // 高亮窗口明亮、其余压暗
   }
 
   function scheduleWinQuery(p) {
@@ -579,8 +656,22 @@
   // ---------- 鼠标 ----------
   const onToolbar = (e) => !!(e.target.closest && e.target.closest('#toolbar'))
 
+  // 工具条拖拽移动（抓空白处 / 分隔条）
+  toolbar.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    if (!(e.target === toolbar || e.target.classList?.contains('sep'))) return
+    e.preventDefault()
+    tbDrag = { sx: e.clientX, sy: e.clientY, ox: tbOff.x, oy: tbOff.y }
+  })
+
   window.addEventListener('mousedown', (e) => {
-    if (e.button !== 0 || onToolbar(e)) return
+    if (e.button !== 0) {
+      if (popOpen) closePop()
+      return
+    }
+    // 点击弹层与工具条之外：先收弹层，再走正常选区交互
+    if (popOpen && !e.target.closest?.('#tbPop') && !onToolbar(e)) closePop()
+    if (onToolbar(e)) return
     if (ocrPanelOpen) {
       // 面板内点击交给按钮，面板外点击先收起面板再走正常选区交互
       if (e.target.closest && e.target.closest('#ocrPanel')) return
@@ -620,6 +711,7 @@
       redoShapes = []
       redrawAll()
     }
+    tbOff = { x: 0, y: 0 } // 新选区：工具条回正中
     // 窗口智能识别：有高亮窗口时按下先挂起——单击 = 选中窗口，拖动 ≥6px = 转手动框选
     if (winHlRect) {
       state = 'winDown'
@@ -635,6 +727,12 @@
   })
 
   window.addEventListener('pointermove', (e) => {
+    if (tbDrag) {
+      tbOff.x = tbDrag.ox + e.clientX - tbDrag.sx
+      tbOff.y = tbDrag.oy + e.clientY - tbDrag.sy
+      if (state === 'selected') positionToolbar()
+      return
+    }
     const p = { x: e.clientX, y: e.clientY }
     if (onToolbar(e)) {
       hideMagnifier()
@@ -684,6 +782,10 @@
 
   window.addEventListener('pointerup', (e) => {
     if (e.button !== 0) return
+    if (tbDrag) {
+      tbDrag = null
+      return
+    }
     if (state === 'winDown') {
       // 单击：选中识别到的窗口区域
       sel = { ...winPending }
@@ -780,6 +882,10 @@
   // ---------- 键盘 ----------
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (popOpen) {
+        closePop()
+        return
+      }
       if (ocrPanelOpen) {
         closeOcrPanel()
         return
@@ -828,6 +934,9 @@
     hideTextInput(false)
     hideWinHl()
     winPending = null
+    closePop()
+    tbOff = { x: 0, y: 0 }
+    tbDrag = null
     ocrPanelOpen = false
     ocrBusy = false
     ocrPanel.style.display = 'none'

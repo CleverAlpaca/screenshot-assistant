@@ -327,8 +327,8 @@ input[type='range']::-webkit-slider-thumb {
   height: 74px;
   flex: none;
   border-radius: 8px;
-  object-fit: cover;
-  background: rgba(0, 0, 0, 0.08);
+  object-fit: contain; /* 完整显示，不裁切竖图/宽图 */
+  background: rgba(10, 14, 26, 0.55);
   border: 1px solid var(--border-weak);
   cursor: pointer;
 }
