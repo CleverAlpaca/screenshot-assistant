@@ -26,6 +26,15 @@ const api = {
   clip: {
     writeText: (text) => ipcRenderer.invoke('clip:writeText', text),
   },
+  history: {
+    list: () => ipcRenderer.invoke('history:list'),
+    copy: (id) => ipcRenderer.invoke('history:copy', id),
+    pin: (id) => ipcRenderer.invoke('history:pin', id),
+    save: (id) => ipcRenderer.invoke('history:save', id),
+    remove: (id) => ipcRenderer.invoke('history:remove', id),
+    openLocation: (id) => ipcRenderer.invoke('history:openLocation', id),
+    clear: () => ipcRenderer.invoke('history:clear'),
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch) => ipcRenderer.invoke('settings:set', patch),

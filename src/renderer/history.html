@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
+  <title>历史记录</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="history.css" />
+</head>
+<body>
+  <div id="window">
+    <div id="titlebar">
+      <span class="title">历史记录</span>
+      <span id="countBadge" class="badge"></span>
+      <button id="clearBtn" title="清空全部">清空</button>
+      <button id="closeBtn" title="关闭">
+        <svg viewBox="0 0 24 24"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
+      </button>
+    </div>
+
+    <div id="content">
+      <div id="empty" style="display:flex">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24"><path d="M4 8 V5.5 A1.5 1.5 0 0 1 5.5 4 H8 M16 4 h2.5 A1.5 1.5 0 0 1 20 5.5 V8 M20 16 v2.5 A1.5 1.5 0 0 1 18.5 20 H16 M8 20 H5.5 A1.5 1.5 0 0 1 4 18.5 V16"/></svg>
+        </div>
+        <div class="empty-text" id="emptyText">加载中…</div>
+      </div>
+      <div id="list"></div>
+    </div>
+  </div>
+  <script src="history.js"></script>
+</body>
+</html>

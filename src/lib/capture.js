@@ -32,9 +32,10 @@ function webPrefs() {
 }
 
 class CaptureController {
-  constructor({ getSettings, onSaved, log }) {
+  constructor({ getSettings, onSaved, onRecord, log }) {
     this.getSettings = getSettings // () => settings
     this.onSaved = onSaved // (filePath|null) => void  保存成功后通知
+    this.onRecord = onRecord // (dataUrl) => void  完成的截图写入历史
     this.log = log || (() => {}) // 应用内文件日志
     this.overlays = new Map() // displayId -> { win, loaded, captureReady }
     this.poolKey = '' // 覆盖层池对应的显示器拓扑签名
@@ -216,14 +217,19 @@ class CaptureController {
     try {
       if (action === 'copy') {
         clipboard.writeImage(nativeImage.createFromDataURL(payload.dataUrl))
+        if (this.onRecord) this.onRecord(payload.dataUrl)
       } else if (action === 'save') {
         const filePath = await this.saveImage(payload.dataUrl)
-        if (filePath && this.onSaved) this.onSaved(filePath)
+        if (filePath) {
+          if (this.onSaved) this.onSaved(filePath)
+          if (this.onRecord) this.onRecord(payload.dataUrl)
+        }
       } else if (action === 'pin') {
         const display = screen.getDisplayNearestPoint({ x: payload.screenX, y: payload.screenY })
         const x = display.bounds.x + payload.rect.x
         const y = display.bounds.y + payload.rect.y
         this.createPin(payload.dataUrl, { x, y, width: payload.rect.w, height: payload.rect.h }, payload.opacity)
+        if (this.onRecord) this.onRecord(payload.dataUrl)
       }
     } catch (err) {
       this.notifyError('操作失败', String(err.message || err))

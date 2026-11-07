@@ -12,12 +12,14 @@ const {
   screen,
   shell,
   clipboard,
+  nativeImage,
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { Store } = require('./lib/store')
 const { CaptureController } = require('./lib/capture')
 const ocr = require('./lib/ocr')
+const { History } = require('./lib/history')
 
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png')
 const TRAY_ICON = path.join(__dirname, '..', 'assets', 'tray.png')
@@ -40,8 +42,10 @@ function log(...parts) {
 
 let store = null
 let capture = null
+let history = null
 let tray = null
 let settingsWindow = null
+let historyWindow = null
 let countdownWindow = null
 let countdownTimer = null
 let quitting = false
@@ -51,9 +55,17 @@ let hotkey = '' // 实际注册成功的全局快捷键
 const effectiveTheme = () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
 function applyThemeSetting(source) {
   nativeTheme.themeSource = source // 'system' | 'light' | 'dark'
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.webContents.send('theme:changed', { source, effective: effectiveTheme() })
+  for (const w of [settingsWindow, historyWindow]) {
+    if (w && !w.isDestroyed()) w.webContents.send('theme:changed', { source, effective: effectiveTheme() })
   }
+}
+
+// ---- 保存成功通知（截图保存 / 历史另存共用） ----
+function notifySaved(filePath) {
+  if (!Notification.isSupported()) return
+  const n = new Notification({ title: '截图已保存', body: filePath, icon: TRAY_ICON })
+  n.on('click', () => shell.showItemInFolder(filePath))
+  n.show()
 }
 
 // ---- 设置窗口 ----
@@ -85,6 +97,38 @@ function createSettingsWindow() {
   settingsWindow.once('ready-to-show', () => settingsWindow.show())
   settingsWindow.on('closed', () => {
     settingsWindow = null
+  })
+}
+
+// ---- 历史记录窗口 ----
+function createHistoryWindow() {
+  if (historyWindow && !historyWindow.isDestroyed()) {
+    historyWindow.show()
+    historyWindow.focus()
+    return
+  }
+  historyWindow = new BrowserWindow({
+    width: 640,
+    height: 700,
+    frame: false,
+    transparent: true,
+    thickFrame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    icon: ICON,
+    show: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  historyWindow.loadFile(path.join(__dirname, 'renderer', 'history.html'))
+  historyWindow.once('ready-to-show', () => historyWindow.show())
+  historyWindow.on('closed', () => {
+    historyWindow = null
   })
 }
 
@@ -170,6 +214,7 @@ function createTray() {
       { label: '3 秒后截图', click: () => startCountdown(3) },
       { label: '5 秒后截图', click: () => startCountdown(5) },
       { type: 'separator' },
+      { label: '历史记录', click: () => createHistoryWindow() },
       { label: '设置', click: () => createSettingsWindow() },
       { type: 'separator' },
       {
@@ -218,20 +263,13 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     app.setAppUserModelId('com.local.screenshot-assistant')
     store = new Store(app.getPath('userData'))
+    history = new History(app.getPath('userData'))
 
     capture = new CaptureController({
       getSettings: () => store.getSettings(),
       log,
-      onSaved: (filePath) => {
-        if (!Notification.isSupported()) return
-        const n = new Notification({
-          title: '截图已保存',
-          body: filePath,
-          icon: TRAY_ICON,
-        })
-        n.on('click', () => shell.showItemInFolder(filePath))
-        n.show()
-      },
+      onSaved: notifySaved,
+      onRecord: (dataUrl) => history.record(dataUrl),
     })
 
     applyThemeSetting(store.getSettings().theme)
@@ -279,6 +317,81 @@ function registerIpc() {
     clipboard.writeText(String(text ?? ''))
     return true
   })
+
+  // 历史记录
+  // 应用内历史 + 本地保存目录中的截图文件，按时间合并
+  const localSaveDir = () => store.getSettings().saveDir || path.join(app.getPath('pictures'), '截图助手')
+  const historyImageData = (id) => {
+    if (typeof id === 'string' && id.startsWith('local:')) {
+      const file = id.slice(6)
+      try {
+        if (!fs.existsSync(file)) return null
+        return nativeImage.createFromPath(file).toDataURL()
+      } catch {
+        return null
+      }
+    }
+    return history.getImage(id)
+  }
+  ipcMain.handle('history:list', () =>
+    [...history.list(), ...history.listLocal(localSaveDir())].sort((a, b) => b.ts - a.ts)
+  )
+  ipcMain.handle('history:copy', (_e, id) => {
+    const dataUrl = historyImageData(id)
+    if (!dataUrl) return false
+    clipboard.writeImage(nativeImage.createFromDataURL(dataUrl))
+    return true
+  })
+  ipcMain.handle('history:pin', (_e, id) => {
+    const dataUrl = historyImageData(id)
+    if (!dataUrl) return false
+    const size = nativeImage.createFromDataURL(dataUrl).getSize()
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+    let w = Math.round(size.width / display.scaleFactor)
+    let h = Math.round(size.height / display.scaleFactor)
+    const wa = display.workArea
+    const maxW = Math.round(wa.width * 0.8)
+    const maxH = Math.round(wa.height * 0.8)
+    if (w > maxW || h > maxH) {
+      const k = Math.min(maxW / w, maxH / h)
+      w = Math.round(w * k)
+      h = Math.round(h * k)
+    }
+    capture.createPin(
+      dataUrl,
+      { x: Math.round(wa.x + (wa.width - w) / 2), y: Math.round(wa.y + (wa.height - h) / 2), width: w, height: h },
+      store.getSettings().pinOpacity
+    )
+    return true
+  })
+  ipcMain.handle('history:save', async (_e, id) => {
+    const dataUrl = historyImageData(id)
+    if (!dataUrl) return false
+    const filePath = await capture.saveImage(dataUrl)
+    if (filePath) notifySaved(filePath)
+    return !!filePath
+  })
+  ipcMain.handle('history:remove', (_e, id) => {
+    // 本地文件条目：真删磁盘文件（渲染层已确认）
+    if (typeof id === 'string' && id.startsWith('local:')) {
+      try {
+        fs.rmSync(id.slice(6), { force: true })
+        return true
+      } catch {
+        return false
+      }
+    }
+    return history.remove(id)
+  })
+  ipcMain.handle('history:openLocation', (_e, id) => {
+    const file =
+      typeof id === 'string' && id.startsWith('local:')
+        ? id.slice(6)
+        : history.list().find((x) => x.id === id)?.file
+    if (file && fs.existsSync(file)) shell.showItemInFolder(file)
+    return true
+  })
+  ipcMain.handle('history:clear', () => history.clear())
 
   // 设置
   ipcMain.handle('settings:get', () => store.getSettings())
