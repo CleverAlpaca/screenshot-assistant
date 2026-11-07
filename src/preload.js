@@ -1,7 +1,7 @@
 // 安全桥：向渲染层暴露最小 API 面（覆盖层 / 贴图 / 倒计时 / 设置 四类窗口共用）
 const { contextBridge, ipcRenderer } = require('electron')
 
-const EVENTS = ['capture:init', 'pin:init', 'countdown:tick', 'theme:changed']
+const EVENTS = ['capture:init', 'pin:init', 'countdown:tick', 'theme:changed', 'main:page']
 
 const api = {
   platform: process.platform,

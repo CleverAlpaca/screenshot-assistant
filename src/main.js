@@ -45,8 +45,7 @@ let store = null
 let capture = null
 let history = null
 let tray = null
-let settingsWindow = null
-let historyWindow = null
+let mainWindow = null
 let countdownWindow = null
 let countdownTimer = null
 let quitting = false
@@ -56,8 +55,8 @@ let hotkey = '' // 实际注册成功的全局快捷键
 const effectiveTheme = () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
 function applyThemeSetting(source) {
   nativeTheme.themeSource = source // 'system' | 'light' | 'dark'
-  for (const w of [settingsWindow, historyWindow]) {
-    if (w && !w.isDestroyed()) w.webContents.send('theme:changed', { source, effective: effectiveTheme() })
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('theme:changed', { source, effective: effectiveTheme() })
   }
 }
 
@@ -69,16 +68,17 @@ function notifySaved(filePath) {
   n.show()
 }
 
-// ---- 设置窗口 ----
-function createSettingsWindow() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.show()
-    settingsWindow.focus()
+// ---- 主窗口（设置 / 历史记录 页签） ----
+function createMainWindow(page = 'settings') {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('main:page', { page })
     return
   }
-  settingsWindow = new BrowserWindow({
-    width: 460,
-    height: 660,
+  mainWindow = new BrowserWindow({
+    width: 660,
+    height: 700,
     frame: false,
     transparent: true, // 配合 CSS 圆角（Win10 无系统级圆角）
     thickFrame: false,
@@ -94,42 +94,14 @@ function createSettingsWindow() {
       nodeIntegration: false,
     },
   })
-  settingsWindow.loadFile(path.join(__dirname, 'renderer', 'settings.html'))
-  settingsWindow.once('ready-to-show', () => settingsWindow.show())
-  settingsWindow.on('closed', () => {
-    settingsWindow = null
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'main.html'))
+  // 页签事件等渲染层脚本就绪后再发（ready-to-show 晚于 did-finish-load）
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
+    mainWindow.webContents.send('main:page', { page })
   })
-}
-
-// ---- 历史记录窗口 ----
-function createHistoryWindow() {
-  if (historyWindow && !historyWindow.isDestroyed()) {
-    historyWindow.show()
-    historyWindow.focus()
-    return
-  }
-  historyWindow = new BrowserWindow({
-    width: 640,
-    height: 700,
-    frame: false,
-    transparent: true,
-    thickFrame: false,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    icon: ICON,
-    show: false,
-    backgroundColor: '#00000000',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  })
-  historyWindow.loadFile(path.join(__dirname, 'renderer', 'history.html'))
-  historyWindow.once('ready-to-show', () => historyWindow.show())
-  historyWindow.on('closed', () => {
-    historyWindow = null
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 }
 
@@ -207,16 +179,16 @@ function startCapture() {
 function createTray() {
   tray = new Tray(TRAY_ICON)
   tray.setToolTip(hotkey ? `截图助手 — ${hotkey} 截图` : '截图助手')
-  tray.on('click', () => createSettingsWindow()) // 左键打开设置（与右键菜单「设置」一致）
-  tray.on('double-click', () => createSettingsWindow())
+  tray.on('click', () => createMainWindow()) // 左键打开主窗口（设置页）
+  tray.on('double-click', () => createMainWindow())
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: hotkey ? `截图 (${hotkey})` : '截图', click: () => startCapture() },
       { label: '3 秒后截图', click: () => startCountdown(3) },
       { label: '5 秒后截图', click: () => startCountdown(5) },
       { type: 'separator' },
-      { label: '历史记录', click: () => createHistoryWindow() },
-      { label: '设置', click: () => createSettingsWindow() },
+      { label: '历史记录', click: () => createMainWindow('history') },
+      { label: '设置', click: () => createMainWindow() },
       { type: 'separator' },
       {
         label: '退出',
@@ -259,7 +231,7 @@ app.on('child-process-gone', (_e, details) => log('[main] child-process-gone:', 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => createSettingsWindow())
+  app.on('second-instance', () => createMainWindow())
 
   app.whenReady().then(() => {
     app.setAppUserModelId('com.local.screenshot-assistant')
@@ -431,7 +403,7 @@ function registerIpc() {
   })
   ipcMain.handle('app:chooseSaveDir', async () => {
     const s = store.getSettings()
-    const { canceled, filePaths } = await dialog.showOpenDialog(settingsWindow, {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
       title: '选择保存目录',
       defaultPath: s.saveDir || app.getPath('pictures'),
       properties: ['openDirectory', 'createDirectory'],
