@@ -11,13 +11,32 @@ const {
   dialog,
   screen,
   shell,
+  clipboard,
 } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const { Store } = require('./lib/store')
 const { CaptureController } = require('./lib/capture')
+const ocr = require('./lib/ocr')
 
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png')
 const TRAY_ICON = path.join(__dirname, '..', 'assets', 'tray.png')
+
+// 应用内文件日志：GUI 子系统下 console.log 不可靠（无标准输出句柄），排查问题以 run.log 为准
+const LOG_FILE = app.isPackaged
+  ? path.join(app.getPath('userData'), 'run.log')
+  : path.join(__dirname, '..', '.run.log')
+function log(...parts) {
+  try {
+    const d = new Date()
+    const ts =
+      String(d.getHours()).padStart(2, '0') +
+      ':' + String(d.getMinutes()).padStart(2, '0') +
+      ':' + String(d.getSeconds()).padStart(2, '0') +
+      '.' + String(d.getMilliseconds()).padStart(3, '0')
+    fs.appendFileSync(LOG_FILE, ts + ' ' + parts.join(' ') + '\n')
+  } catch { /* 日志失败不影响功能 */ }
+}
 
 let store = null
 let capture = null
@@ -186,8 +205,9 @@ function registerHotkeys() {
   }
 }
 
-process.on('uncaughtException', (err) => console.log('[main] uncaughtException:', err && err.stack))
-process.on('unhandledRejection', (err) => console.log('[main] unhandledRejection:', err && (err.stack || err)))
+process.on('uncaughtException', (err) => log('[main] uncaughtException:', err && err.stack))
+process.on('unhandledRejection', (err) => log('[main] unhandledRejection:', err && (err.stack || err)))
+app.on('child-process-gone', (_e, details) => log('[main] child-process-gone:', JSON.stringify(details)))
 
 // ---- 应用生命周期 ----
 if (!app.requestSingleInstanceLock()) {
@@ -201,6 +221,7 @@ if (!app.requestSingleInstanceLock()) {
 
     capture = new CaptureController({
       getSettings: () => store.getSettings(),
+      log,
       onSaved: (filePath) => {
         if (!Notification.isSupported()) return
         const n = new Notification({
@@ -251,6 +272,13 @@ function registerIpc() {
 
   // 倒计时
   ipcMain.handle('countdown:cancel', () => stopCountdown())
+
+  // OCR 与剪贴板文本
+  ipcMain.handle('ocr:run', (_e, dataUrl) => ocr.runOcr(dataUrl))
+  ipcMain.handle('clip:writeText', (_e, text) => {
+    clipboard.writeText(String(text ?? ''))
+    return true
+  })
 
   // 设置
   ipcMain.handle('settings:get', () => store.getSettings())

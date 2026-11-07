@@ -73,6 +73,12 @@
     </span>
 
     <i class="sep"></i>
+    <button class="tb" id="ocrBtn" title="文字识别 (O)">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 8 V5.5 A1.5 1.5 0 0 1 5.5 4 H8 M16 4 h2.5 A1.5 1.5 0 0 1 20 5.5 V8 M20 16 v2.5 A1.5 1.5 0 0 1 18.5 20 H16 M8 20 H5.5 A1.5 1.5 0 0 1 4 18.5 V16"/>
+        <path d="M7 9.5 h10 M7 12.5 h10 M7 15.5 h6"/>
+      </svg>
+    </button>
     <button class="tb" id="pinBtn" title="贴图（钉在桌面）">
       <svg viewBox="0 0 24 24"><path d="M9 3 h6 l-1 6 3.5 3.5 H14 v6 l-2 2.5 -2-2.5 v-6 H6.5 L10 9 Z"/></svg>
     </button>
@@ -88,6 +94,18 @@
   </div>
 
   <input id="textInput" spellcheck="false" />
+
+  <div id="ocrPanel" style="display:none">
+    <div class="ocr-head">
+      <span id="ocrTitle">文字识别</span>
+      <span class="ocr-head-btns">
+        <button id="ocrCopyAll">复制全部</button>
+        <button id="ocrClose">关闭</button>
+      </span>
+    </div>
+    <div id="ocrLines"></div>
+  </div>
+  <div id="toast"></div>
 
   <script src="overlay.js"></script>
 </body>

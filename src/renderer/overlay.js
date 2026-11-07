@@ -18,6 +18,11 @@
   const redoBtn = $('#redoBtn')
   const swatchesBox = $('#swatches')
   const widthsBox = $('#widths')
+  const ocrBtn = $('#ocrBtn')
+  const ocrPanel = $('#ocrPanel')
+  const ocrTitle = $('#ocrTitle')
+  const ocrLinesBox = $('#ocrLines')
+  const toast = $('#toast')
 
   const MAG = 120
   const ZOOM = 8 // 放大镜倍数（同时是像素网格间距）
@@ -47,13 +52,17 @@
   let lastPt = null
   let textPos = null
 
+  let ocrPanelOpen = false
+  let ocrBusy = false
+  let toastTimer = null
+
   // ---------- 画布 ----------
-  function setupCanvas(c) {
+  function setupCanvas(c, readFrequently) {
     c.width = Math.max(1, Math.round(W * dpr))
     c.height = Math.max(1, Math.round(H * dpr))
     c.style.width = W + 'px'
     c.style.height = H + 'px'
-    const ctx = c.getContext('2d')
+    const ctx = c.getContext('2d', readFrequently ? { willReadFrequently: true } : undefined)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     return ctx
   }
@@ -94,7 +103,7 @@
     const ly = Math.min(sel.y + sel.h, H) + 6
     sizeLabel.style.left = Math.max(4, lx - sizeLabel.offsetWidth) + 'px'
     sizeLabel.style.top = Math.min(H - 26, ly) + 'px'
-    if (state === 'selected') positionToolbar()
+    if (state === 'selected' && !ocrPanelOpen) positionToolbar()
   }
 
   function positionToolbar() {
@@ -380,6 +389,13 @@
     document.querySelectorAll('#toolbar .tb[data-tool]').forEach((b) => {
       b.addEventListener('click', () => setTool(b.dataset.tool))
     })
+    ocrBtn.addEventListener('click', runOcrNow)
+    $('#ocrCopyAll').addEventListener('click', () => {
+      const lines = [...ocrLinesBox.children].map((r) => r.textContent)
+      api.clip.writeText(lines.join('\n'))
+      showToast('已复制全部')
+    })
+    $('#ocrClose').addEventListener('click', closeOcrPanel)
     undoBtn.addEventListener('click', undo)
     redoBtn.addEventListener('click', redo)
     $('#copyBtn').addEventListener('click', () => doAction('copy'))
@@ -412,6 +428,80 @@
     textPos = null
   }
   const commitTextIfAny = () => hideTextInput(true)
+
+  // ---------- OCR 文字识别 ----------
+  function showToast(text) {
+    if (!sel) return
+    toast.textContent = text
+    toast.style.display = 'block'
+    toast.style.left = Math.max(8, sel.x + sel.w / 2 - toast.offsetWidth / 2) + 'px'
+    toast.style.top = Math.max(8, sel.y - 36) + 'px'
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => (toast.style.display = 'none'), 1400)
+  }
+
+  function positionOcrPanel() {
+    ocrPanel.style.display = 'block'
+    const pw = ocrPanel.offsetWidth
+    const ph = ocrPanel.offsetHeight
+    let x = sel.x + sel.w / 2 - pw / 2
+    x = Math.max(8, Math.min(W - pw - 8, x))
+    let y = sel.y + sel.h + 12
+    if (y + ph > H - 8) y = sel.y - ph - 12
+    if (y < 8) y = Math.max(8, H - ph - 8)
+    ocrPanel.style.left = x + 'px'
+    ocrPanel.style.top = y + 'px'
+  }
+
+  function showOcrPanel(lines, lang) {
+    ocrLinesBox.innerHTML = ''
+    for (const line of lines) {
+      const row = document.createElement('div')
+      row.className = 'ocr-line'
+      row.textContent = line
+      row.title = '点击复制本行'
+      row.addEventListener('click', () => {
+        api.clip.writeText(line)
+        showToast('已复制本行')
+      })
+      ocrLinesBox.appendChild(row)
+    }
+    ocrTitle.textContent = `文字识别 · ${lines.length} 行${lang ? ' · ' + lang : ''}`
+    ocrPanelOpen = true
+    toolbar.style.display = 'none'
+    positionOcrPanel()
+  }
+
+  function closeOcrPanel() {
+    if (!ocrPanelOpen) return
+    ocrPanelOpen = false
+    ocrPanel.style.display = 'none'
+    if (state === 'selected') updateSelUI() // 恢复工具条
+  }
+
+  async function runOcrNow() {
+    if (ocrBusy || !sel || sel.w < MIN_SEL || sel.h < MIN_SEL) return
+    commitTextIfAny()
+    ocrBusy = true
+    ocrBtn.classList.add('busy')
+    const dataUrl = exportSel()
+    try {
+      const r = await api.ocr.run(dataUrl)
+      if (r && r.ok && r.lines && r.lines.length) {
+        showOcrPanel(r.lines, r.lang)
+      } else if (r && r.ok) {
+        showToast('未识别到文字')
+      } else {
+        const code = r && r.code
+        showToast(code === 'no_language' ? '系统未安装 OCR 语言包' : '识别失败')
+      }
+    } catch {
+      showToast('识别失败')
+    } finally {
+      ocrBusy = false
+      ocrBtn.classList.remove('busy')
+    }
+  }
 
   // ---------- 命中检测 ----------
   function handleAt(p) {
@@ -453,6 +543,11 @@
 
   window.addEventListener('mousedown', (e) => {
     if (e.button !== 0 || onToolbar(e)) return
+    if (ocrPanelOpen) {
+      // 面板内点击交给按钮，面板外点击先收起面板再走正常选区交互
+      if (e.target.closest && e.target.closest('#ocrPanel')) return
+      closeOcrPanel()
+    }
     // 捕获指针：拖拽移出窗口（多显示器边缘）仍能收到 move/up
     try {
       document.body.setPointerCapture(e.pointerId)
@@ -550,12 +645,16 @@
   })
 
   window.addEventListener('dblclick', (e) => {
-    if (onToolbar(e)) return
+    if (onToolbar(e) || ocrPanelOpen) return
     if (sel && !tool) doAction('copy')
   })
 
   window.addEventListener('contextmenu', (e) => {
     e.preventDefault()
+    if (ocrPanelOpen) {
+      closeOcrPanel()
+      return
+    }
     if (!sel) {
       api.overlay.cancel()
     } else if (shapes.length === 0 && !tool) {
@@ -612,6 +711,10 @@
   // ---------- 键盘 ----------
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (ocrPanelOpen) {
+        closeOcrPanel()
+        return
+      }
       api.overlay.cancel()
       return
     }
@@ -632,12 +735,14 @@
     }
     if (mod) return
     if (e.key === 'Enter' && sel) return doAction('copy')
+    if (k === 'o' && sel) return runOcrNow()
     const map = { r: 'rect', e: 'ellipse', a: 'arrow', p: 'pen', m: 'marker', t: 'text', b: 'mosaic' }
     if (map[k] && sel) setTool(map[k])
   })
 
   // ---------- 初始化 ----------
   api.on('capture:init', (p) => {
+    const t0 = performance.now()
     displayId = p.displayId
     dpr = p.dpr
     W = p.width
@@ -652,8 +757,13 @@
     tool = null
     state = 'idle'
     hideTextInput(false)
+    ocrPanelOpen = false
+    ocrBusy = false
+    ocrPanel.style.display = 'none'
+    ocrBtn.classList.remove('busy')
+    toast.style.display = 'none'
     document.querySelectorAll('#toolbar .tb[data-tool]').forEach((b) => b.classList.remove('active'))
-    bgCtx = setupCanvas(bgCanvas)
+    bgCtx = setupCanvas(bgCanvas, true) // 放大镜要整幅读回像素，必须 willReadFrequently
     annotCtx = setupCanvas(annotCanvas)
     mag.width = Math.round(MAG * dpr)
     mag.height = Math.round(MAG * dpr)
@@ -666,6 +776,7 @@
       buildMosaic()
       redrawAll()
       updateSelUI()
+      console.log('[perf][overlay] init+draw:', Math.round(performance.now() - t0), 'ms')
       api.overlay.captureReady(displayId)
     }
     bgImg.onerror = () => api.overlay.captureReady(displayId)

@@ -32,9 +32,10 @@ function webPrefs() {
 }
 
 class CaptureController {
-  constructor({ getSettings, onSaved }) {
+  constructor({ getSettings, onSaved, log }) {
     this.getSettings = getSettings // () => settings
     this.onSaved = onSaved // (filePath|null) => void  保存成功后通知
+    this.log = log || (() => {}) // 应用内文件日志
     this.overlays = new Map() // displayId -> { win, loaded, captureReady }
     this.poolKey = '' // 覆盖层池对应的显示器拓扑签名
     this.pins = new Map() // webContents.id -> { win, dataUrl, scale, opacity }
@@ -102,13 +103,13 @@ class CaptureController {
     // 渲染层日志转发到主进程 stdout（开发排查用）
     win.webContents.on('console-message', (e) => {
       const msg = typeof e === 'object' && e.message !== undefined ? e.message : e
-      console.log('[overlay]', msg)
+      this.log('[overlay]', msg)
     })
     win.webContents.on('render-process-gone', (_e, details) => {
-      console.log('[overlay] RENDER GONE:', JSON.stringify(details))
+      this.log('[overlay] RENDER GONE:', JSON.stringify(details))
     })
     win.webContents.on('preload-error', (_e, p, err) => {
-      console.log('[overlay] preload-error:', p, err.message)
+      this.log('[overlay] preload-error:', p, err.message)
     })
     const loaded = new Promise((resolve) => {
       win.webContents.once('did-finish-load', resolve)
@@ -142,16 +143,22 @@ class CaptureController {
   // ---- 会话 ----
   async start() {
     if (this.session || this.finishing) return
+    // 立即占位会话，防止快速连按 F1 时两次 start() 并发重入（session 此前在抓屏/建池后才赋值）
+    this.session = { count: 0, ready: new Set(), shown: false, t0: Date.now() }
+    const t0 = Date.now()
     const displays = screen.getAllDisplays()
     let grabs
     try {
       grabs = await this.grabAll(displays)
     } catch (err) {
+      this.session = null // 释放占位会话，否则后续截图永远被阻断
       this.notifyError('截图失败', String(err.message || err))
       return
     }
+    this.log('[perf] grabAll:', Date.now() - t0, 'ms')
     await this.ensurePool(displays)
-    this.session = { count: grabs.length, ready: new Set(), shown: false }
+    this.log('[perf] pool ready:', Date.now() - t0, 'ms')
+    this.session.count = grabs.length
     for (const { display, dataUrl } of grabs) {
       const entry = this.overlays.get(display.id)
       if (!entry || entry.win.isDestroyed()) continue
@@ -179,6 +186,7 @@ class CaptureController {
   showOverlays() {
     if (!this.session || this.session.shown) return
     this.session.shown = true
+    this.log('[perf] capture:ready -> shown, since grab:', this.session.t0 ? Date.now() - this.session.t0 : '?', 'ms')
     const cursor = screen.getCursorScreenPoint()
     let focusWin = null
     for (const [, e] of this.overlays) {

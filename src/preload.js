@@ -20,6 +20,12 @@ const api = {
   countdown: {
     cancel: () => ipcRenderer.invoke('countdown:cancel'),
   },
+  ocr: {
+    run: (dataUrl) => ipcRenderer.invoke('ocr:run', dataUrl),
+  },
+  clip: {
+    writeText: (text) => ipcRenderer.invoke('clip:writeText', text),
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch) => ipcRenderer.invoke('settings:set', patch),
