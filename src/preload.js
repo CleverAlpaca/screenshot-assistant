@@ -26,6 +26,9 @@ const api = {
   clip: {
     writeText: (text) => ipcRenderer.invoke('clip:writeText', text),
   },
+  win: {
+    atPoint: (x, y) => ipcRenderer.invoke('win:atPoint', x, y),
+  },
   history: {
     list: () => ipcRenderer.invoke('history:list'),
     copy: (id) => ipcRenderer.invoke('history:copy', id),

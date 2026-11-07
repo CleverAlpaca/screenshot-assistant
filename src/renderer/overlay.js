@@ -14,6 +14,7 @@
   const magHex = $('#magHex')
   const toolbar = $('#toolbar')
   const textInput = $('#textInput')
+  const winHl = $('#winHl')
   const undoBtn = $('#undoBtn')
   const redoBtn = $('#redoBtn')
   const swatchesBox = $('#swatches')
@@ -55,6 +56,10 @@
   let ocrPanelOpen = false
   let ocrBusy = false
   let toastTimer = null
+
+  let winHlRect = null
+  let winQueryBusy = false
+  let winPending = null
 
   // ---------- 画布 ----------
   function setupCanvas(c, readFrequently) {
@@ -538,6 +543,39 @@
     updateSelUI()
   }
 
+  // ---------- 窗口智能识别 ----------
+  function hideWinHl() {
+    winHlRect = null
+    winHl.style.display = 'none'
+  }
+
+  function updateWinHl(r) {
+    if (!r || r.w < 2 || r.h < 2) return hideWinHl()
+    winHlRect = {
+      x: Math.max(0, Math.round(r.x)),
+      y: Math.max(0, Math.round(r.y)),
+      w: Math.min(W, Math.round(r.w)),
+      h: Math.min(H, Math.round(r.h)),
+    }
+    winHl.style.display = 'block'
+    winHl.style.left = winHlRect.x + 'px'
+    winHl.style.top = winHlRect.y + 'px'
+    winHl.style.width = winHlRect.w + 'px'
+    winHl.style.height = winHlRect.h + 'px'
+  }
+
+  function scheduleWinQuery(p) {
+    if (winQueryBusy) return
+    winQueryBusy = true
+    api.win
+      .atPoint(originX + p.x, originY + p.y)
+      .then((r) => {
+        if (state === 'idle') updateWinHl(r)
+      })
+      .catch(() => {})
+      .finally(() => setTimeout(() => (winQueryBusy = false), 40))
+  }
+
   // ---------- 鼠标 ----------
   const onToolbar = (e) => !!(e.target.closest && e.target.closest('#toolbar'))
 
@@ -582,6 +620,13 @@
       redoShapes = []
       redrawAll()
     }
+    // 窗口智能识别：有高亮窗口时按下先挂起——单击 = 选中窗口，拖动 ≥6px = 转手动框选
+    if (winHlRect) {
+      state = 'winDown'
+      winPending = { ...winHlRect }
+      dragStart = p
+      return
+    }
     state = 'dragging'
     sel = { x: p.x, y: p.y, w: 0, h: 0 }
     dragStart = p
@@ -599,6 +644,21 @@
       drawMagnifier(p)
     } else {
       hideMagnifier()
+    }
+    if (state === 'idle') {
+      scheduleWinQuery(p)
+    } else if (state !== 'winDown' && winHlRect) {
+      hideWinHl()
+    }
+    if (state === 'winDown') {
+      // 按住后拖动超过阈值 → 放弃窗口选中，转手动框选
+      if (Math.hypot(p.x - dragStart.x, p.y - dragStart.y) > 6) {
+        state = 'dragging'
+        sel = { x: dragStart.x, y: dragStart.y, w: 0, h: 0 }
+        hideWinHl()
+        updateSelUI()
+      }
+      return
     }
     if (state === 'dragging') {
       sel = {
@@ -624,6 +684,15 @@
 
   window.addEventListener('pointerup', (e) => {
     if (e.button !== 0) return
+    if (state === 'winDown') {
+      // 单击：选中识别到的窗口区域
+      sel = { ...winPending }
+      winPending = null
+      hideWinHl()
+      state = 'selected'
+      updateSelUI()
+      return
+    }
     if (state === 'dragging') {
       if (!sel || sel.w < MIN_SEL || sel.h < MIN_SEL) {
         sel = null
@@ -757,6 +826,8 @@
     tool = null
     state = 'idle'
     hideTextInput(false)
+    hideWinHl()
+    winPending = null
     ocrPanelOpen = false
     ocrBusy = false
     ocrPanel.style.display = 'none'

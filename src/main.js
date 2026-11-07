@@ -20,6 +20,7 @@ const { Store } = require('./lib/store')
 const { CaptureController } = require('./lib/capture')
 const ocr = require('./lib/ocr')
 const { History } = require('./lib/history')
+const { windowAtPointPhys } = require('./lib/win32')
 
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png')
 const TRAY_ICON = path.join(__dirname, '..', 'assets', 'tray.png')
@@ -310,6 +311,25 @@ function registerIpc() {
 
   // 倒计时
   ipcMain.handle('countdown:cancel', () => stopCountdown())
+
+  // 窗口智能识别：物理坐标查询 → 转 DIP 矩形返回
+  ipcMain.handle('win:atPoint', (_e, dipX, dipY) => {
+    try {
+      const dip = { x: Number(dipX) || 0, y: Number(dipY) || 0 }
+      const phys = screen.dipToScreenPoint(dip)
+      const exclude = new Set()
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) exclude.add(w.getNativeWindowHandle().readBigUInt64LE(0))
+      }
+      const r = windowAtPointPhys(phys.x, phys.y, exclude)
+      if (!r) return null
+      const tl = screen.screenToDipPoint({ x: r.left, y: r.top })
+      const br = screen.screenToDipPoint({ x: r.right, y: r.bottom })
+      return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y }
+    } catch {
+      return null
+    }
+  })
 
   // OCR 与剪贴板文本
   ipcMain.handle('ocr:run', (_e, dataUrl) => ocr.runOcr(dataUrl))
