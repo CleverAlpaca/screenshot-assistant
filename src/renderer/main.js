@@ -13,6 +13,7 @@
   let activePage = 'settings'
   function switchPage(name) {
     if (!pages[name]) return
+    hidePreview()
     activePage = name
     for (const [k, el] of Object.entries(pages)) el.classList.toggle('active', k === name)
     document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === name))
@@ -67,6 +68,43 @@
   const hListEl = $('#hList')
   const hEmptyEl = $('#empty')
   const hBadge = $('#countBadge')
+  const hPreview = $('#hPreview')
+  let hpTimer = null
+  let hpItem = null
+  let hpPinned = false
+
+  function hidePreview() {
+    clearTimeout(hpTimer)
+    hpTimer = null
+    hpPinned = false
+    hPreview.classList.remove('pinned')
+    hPreview.style.display = 'none'
+  }
+
+  async function showPreviewNow(item, anchor, pinned) {
+    const url = await api.history.image(item.id)
+    if (!url) return
+    hpItem = item
+    hpPinned = pinned
+    hPreview.classList.toggle('pinned', pinned)
+    $('#hpImg').src = url
+    $('#hpMeta').textContent = `${fmtTime(item.ts)} · ${item.w} × ${item.h}${item.local ? ' · 本地文件' : ''}`
+    hPreview.style.display = 'flex'
+    const pw = hPreview.offsetWidth
+    const ph = hPreview.offsetHeight
+    let x = anchor.right + 10
+    if (x + pw > innerWidth - 8) x = anchor.left - pw - 10
+    x = Math.max(8, x)
+    const y = Math.max(8, Math.min(innerHeight - ph - 8, anchor.top))
+    hPreview.style.left = x + 'px'
+    hPreview.style.top = y + 'px'
+  }
+
+  function schedulePreview(item, anchor) {
+    clearTimeout(hpTimer)
+    hpItem = item
+    hpTimer = setTimeout(() => showPreviewNow(item, anchor, false), 300)
+  }
 
   const pad = (n) => String(n).padStart(2, '0')
   const fmtTime = (ts) => {
@@ -100,8 +138,16 @@
     const img = document.createElement('img')
     img.className = 'thumb'
     img.src = item.thumb
-    img.title = '点击复制'
-    img.addEventListener('click', () => hCopy(item.id))
+    img.title = '点击打开画布查看 · 悬停快速预览'
+    img.addEventListener('click', (e) => {
+      e.stopPropagation()
+      clearTimeout(hpTimer)
+      cvOpen(item)
+    })
+    img.addEventListener('mouseenter', () => schedulePreview(item, img.getBoundingClientRect()))
+    img.addEventListener('mouseleave', () => {
+      if (!hpPinned) hidePreview()
+    })
     el.appendChild(img)
 
     const meta = document.createElement('div')
@@ -112,7 +158,8 @@
     if (item.local) {
       const chip = document.createElement('span')
       chip.className = 'chip'
-      chip.textContent = '本地'
+      chip.innerHTML =
+        '<svg viewBox="0 0 24 24"><path d="M3 6.5 A1.5 1.5 0 0 1 4.5 5 H9 l2 2.5 h8.5 A1.5 1.5 0 0 1 21 9 v8.5 A1.5 1.5 0 0 1 19.5 19 h-15 A1.5 1.5 0 0 1 3 17.5 Z"/></svg>本地'
       time.appendChild(chip)
     }
     const sub = document.createElement('div')
@@ -157,6 +204,33 @@
       : '还没有截图记录<br /><span>完成一次截图（复制 / 保存 / 贴图）后会自动出现在这里</span>'
     hBadge.textContent = items.length ? `${items.length} / 20` : ''
     for (const it of items) hListEl.appendChild(hRow(it))
+  }
+
+  $('#hpCopy').addEventListener('click', () => {
+    if (hpItem) hCopy(hpItem.id)
+    hidePreview()
+  })
+  $('#hpPin').addEventListener('click', () => {
+    if (hpItem) api.history.pin(hpItem.id)
+    hidePreview()
+  })
+  hPreview.addEventListener('mouseenter', () => clearTimeout(hpTimer))
+  hPreview.addEventListener('mouseleave', () => {
+    if (!hpPinned) hidePreview()
+  })
+  // 点击预览面板中的图片 → 画布查看器
+  $('#hpImg').addEventListener('click', () => {
+    if (hpItem) cvOpen(hpItem)
+  })
+
+  // 钉住模式下点击面板外关闭
+  document.addEventListener('mousedown', (e) => {
+    if (hpPinned && !e.target.closest?.('#hPreview') && !e.target.closest?.('.thumb')) hidePreview()
+  })
+
+  // ================= 画布原图查看器（独立可缩放窗口） =================
+  function cvOpen(item) {
+    api.canvasViewer.open(item.id)
   }
 
   $('#clearBtn').addEventListener('click', async () => {

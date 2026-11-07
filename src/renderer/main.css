@@ -108,7 +108,14 @@
   padding: 14px 16px;
   flex-direction: column;
 }
-.page.active { display: flex; }
+.page.active {
+  display: flex;
+  animation: pageIn 0.15s ease;
+}
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* ---- 通用卡片与控件（设置页） ---- */
 .card {
@@ -317,6 +324,11 @@ input[type='range']::-webkit-slider-thumb {
   border: 1px solid var(--border-weak);
   margin-bottom: 8px;
   transition: background 0.12s;
+  animation: itemIn 0.12s ease;
+}
+@keyframes itemIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .item:hover {
   background: var(--glass-strong);
@@ -351,6 +363,17 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--accent);
   font-size: 10px;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.item .meta .time .chip svg {
+  width: 9px;
+  height: 9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
 }
 .item .meta .sub {
   font-size: 11px;
@@ -382,4 +405,63 @@ input[type='range']::-webkit-slider-thumb {
 .item .ops button.del:hover {
   background: rgba(229, 72, 77, 0.12);
   color: var(--danger);
+}
+
+/* ---- 历史悬停预览大图 ---- */
+#hPreview {
+  position: fixed;
+  z-index: 30;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-pop), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  animation: popIn 0.12s ease;
+  /* 悬停模式：容器点击穿透，不挡列表行的 mouseenter（修复后续图片无法预览） */
+  pointer-events: none;
+}
+#hPreview.pinned {
+  /* 点击钉住模式：面板可交互，点击面板外关闭 */
+  pointer-events: auto;
+}
+#hPreview .hp-ops,
+#hPreview .hp-ops button {
+  /* 操作按钮两种模式下都可点击 */
+  pointer-events: auto;
+}
+#hPreview img {
+  max-width: 460px;
+  max-height: 320px;
+  border-radius: 8px;
+  background: rgba(10, 14, 26, 0.55);
+  object-fit: contain;
+}
+#hPreview .hp-meta {
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+#hPreview .hp-ops {
+  display: flex;
+  gap: 6px;
+}
+#hPreview .hp-ops button {
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--glass-weak);
+  border: 1px solid var(--border-glass);
+  transition: all 0.12s;
+}
+#hPreview .hp-ops button:hover { background: var(--bg-hover); }
+#hPreview .hp-ops #hpPin {
+  background: var(--accent-grad);
+  color: #fff;
+  box-shadow: 0 4px 14px var(--accent-soft);
 }

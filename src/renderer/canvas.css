@@ -1,0 +1,56 @@
+/* 画布原图查看器窗口：顶栏可拖动移动，画布随窗口缩放重绘 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #10141f; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, "PingFang SC", "MiSans", "Microsoft YaHei UI", sans-serif;
+}
+
+#bar {
+  flex: none;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-app-region: drag; /* 按住顶部移动窗口 */
+  user-select: none;
+}
+#meta {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bar-btns {
+  display: flex;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+.bar-btns button {
+  padding: 3px 12px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  transition: all 0.12s;
+  font-family: inherit;
+}
+.bar-btns button:hover { background: rgba(255, 255, 255, 0.2); }
+.bar-btns #closeBtn:hover { background: #e81123; border-color: transparent; color: #fff; }
+
+canvas {
+  flex: 1;
+  min-height: 0;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+canvas.panning { cursor: grabbing; }

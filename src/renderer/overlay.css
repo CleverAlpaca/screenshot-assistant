@@ -208,7 +208,7 @@ canvas#annot { z-index: 2; pointer-events: none; }
 .wd.active { background: var(--accent-soft); }
 .wd.active i { background: var(--accent); }
 
-/* ---- 文字标注输入框 ---- */
+/* ---- 文字标注输入框（多行） ---- */
 #textInput {
   position: fixed;
   z-index: 7;
@@ -222,6 +222,10 @@ canvas#annot { z-index: 2; pointer-events: none; }
   outline: none;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.35;
+  white-space: pre;
 }
 
 /* ---- OCR 识别结果面板 ---- */
@@ -357,6 +361,22 @@ canvas#annot { z-index: 2; pointer-events: none; }
 .pwd.active { background: var(--accent-soft); }
 .pwd.active i { background: var(--accent); }
 
+#popSizes {
+  display: flex;
+  gap: 4px;
+}
+.psz {
+  flex: 1;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  transition: background 0.12s;
+}
+.psz:hover { background: var(--bg-hover); color: var(--text); }
+.psz.active { background: var(--accent-soft); color: var(--accent); }
+
 /* 工具条上的当前颜色/粗细圆点 */
 .tb .dot {
   width: 14px;
@@ -378,6 +398,33 @@ canvas#annot { z-index: 2; pointer-events: none; }
 #toolbar.tb-in { animation: tbIn 0.15s ease; }
 @keyframes tbIn {
   from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- 笔刷光标预览（画笔/荧光笔/马赛克） ---- */
+#brushCur {
+  position: fixed;
+  z-index: 4;
+  display: none;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  outline: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+/* ---- 动效（统一 0.12~0.15s 节奏） ---- */
+#tbPop,
+#ocrPanel {
+  animation: popIn 0.12s ease;
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+#toast { animation: toastIn 0.15s ease; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translate(-6px, 0); }
   to { opacity: 1; transform: none; }
 }
 

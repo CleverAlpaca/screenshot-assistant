@@ -1,7 +1,7 @@
 {
   "name": "screenshot-assistant",
   "productName": "截图助手",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "全局快捷键截图 · 框选标注 · 贴图 · 延时截图（苹果风格）",
   "main": "src/main.js",
   "author": "local",

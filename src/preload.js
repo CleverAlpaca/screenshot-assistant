@@ -1,7 +1,7 @@
 // 安全桥：向渲染层暴露最小 API 面（覆盖层 / 贴图 / 倒计时 / 设置 四类窗口共用）
 const { contextBridge, ipcRenderer } = require('electron')
 
-const EVENTS = ['capture:init', 'pin:init', 'countdown:tick', 'theme:changed', 'main:page']
+const EVENTS = ['capture:init', 'pin:init', 'countdown:tick', 'theme:changed', 'main:page', 'cv:init']
 
 const api = {
   platform: process.platform,
@@ -29,11 +29,16 @@ const api = {
   win: {
     atPoint: (x, y) => ipcRenderer.invoke('win:atPoint', x, y),
   },
+  canvasViewer: {
+    open: (id) => ipcRenderer.invoke('canvasViewer:open', id),
+    close: () => ipcRenderer.invoke('canvasViewer:close'),
+  },
   history: {
     list: () => ipcRenderer.invoke('history:list'),
     copy: (id) => ipcRenderer.invoke('history:copy', id),
     pin: (id) => ipcRenderer.invoke('history:pin', id),
     save: (id) => ipcRenderer.invoke('history:save', id),
+    image: (id) => ipcRenderer.invoke('history:image', id),
     remove: (id) => ipcRenderer.invoke('history:remove', id),
     openLocation: (id) => ipcRenderer.invoke('history:openLocation', id),
     clear: () => ipcRenderer.invoke('history:clear'),

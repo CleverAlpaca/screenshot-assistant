@@ -27,6 +27,7 @@
 
   <canvas id="mag" width="120" height="120"></canvas>
   <div id="magHex"></div>
+  <div id="brushCur"></div>
 
   <div id="toolbar">
     <button class="tb" data-tool="rect" title="矩形 (R)">
@@ -92,7 +93,7 @@
     </button>
   </div>
 
-  <input id="textInput" spellcheck="false" />
+  <textarea id="textInput" spellcheck="false" rows="1"></textarea>
 
   <div id="tbPop" style="display:none">
     <div class="pop-title">颜色</div>
@@ -102,6 +103,12 @@
       <button class="pwd" data-w="2" title="细"><i style="width:4px;height:4px"></i></button>
       <button class="pwd" data-w="4" title="中"><i style="width:7px;height:7px"></i></button>
       <button class="pwd" data-w="6" title="粗"><i style="width:10px;height:10px"></i></button>
+    </div>
+    <div class="pop-title">字号 · 文字</div>
+    <div id="popSizes">
+      <button class="psz" data-s="16">16</button>
+      <button class="psz" data-s="24">24</button>
+      <button class="psz" data-s="32">32</button>
     </div>
   </div>
 

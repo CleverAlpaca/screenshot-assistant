@@ -15,6 +15,7 @@
   const toolbar = $('#toolbar')
   const textInput = $('#textInput')
   const winHl = $('#winHl')
+  const brushCur = $('#brushCur')
   const undoBtn = $('#undoBtn')
   const redoBtn = $('#redoBtn')
   const colorBtn = $('#colorBtn')
@@ -50,6 +51,7 @@
   let tool = null
   let color = COLORS[0]
   let strokeW = 2
+  let textSize = 24
 
   let dragStart = null
   let moveOrig = null
@@ -123,7 +125,8 @@
     const ly = Math.min(sel.y + sel.h, H) + 6
     sizeLabel.style.left = Math.max(4, lx - sizeLabel.offsetWidth) + 'px'
     sizeLabel.style.top = Math.min(H - 26, ly) + 'px'
-    if (state === 'selected' && !ocrPanelOpen) positionToolbar()
+    // 移动/缩放过程中工具条实时跟随，不再隐藏
+    if ((state === 'selected' || state === 'moving' || state === 'resizing') && !ocrPanelOpen) positionToolbar()
   }
 
   function positionToolbar() {
@@ -262,7 +265,8 @@
       ctx.font = fontSpec(s.size)
       ctx.textBaseline = 'top'
       ctx.fillStyle = s.color
-      ctx.fillText(s.text, s.x, s.y)
+      const lh = Math.round(s.size * 1.35)
+      String(s.text).split('\n').forEach((ln, i) => ctx.fillText(ln, s.x, s.y + i * lh))
     }
     ctx.restore()
   }
@@ -447,6 +451,13 @@
       })
     })
     popWidths.querySelector(`[data-w="${strokeW}"]`)?.classList.add('active')
+    document.querySelectorAll('#popSizes .psz').forEach((b) => {
+      b.classList.toggle('active', Number(b.dataset.s) === textSize)
+      b.addEventListener('click', () => {
+        textSize = Number(b.dataset.s)
+        document.querySelectorAll('#popSizes .psz').forEach((x) => x.classList.toggle('active', x === b))
+      })
+    })
     syncStyleDots()
     colorBtn.addEventListener('click', togglePop)
     widthBtn.addEventListener('click', togglePop)
@@ -486,7 +497,7 @@
     textInput.style.display = 'none'
     textInput.value = ''
     if (commit && val && textPos) {
-      shapes.push({ type: 'text', x: textPos.x, y: textPos.y, text: val, color, size: 14 + strokeW * 3 })
+      shapes.push({ type: 'text', x: textPos.x, y: textPos.y, text: val, color, size: textSize })
       redrawAll()
     }
     textPos = null
@@ -701,7 +712,6 @@
       if (insideSel(p)) {
         state = 'moving'
         moveOrig = { sel: { ...sel }, px: p.x, py: p.y }
-        toolbar.style.display = 'none'
         return
       }
     }
@@ -736,12 +746,24 @@
     const p = { x: e.clientX, y: e.clientY }
     if (onToolbar(e)) {
       hideMagnifier()
+      brushCur.style.display = 'none'
       return
     }
     if (state === 'idle' || state === 'dragging') {
       drawMagnifier(p)
     } else {
       hideMagnifier()
+    }
+    // 笔刷光标预览：仅笔刷类工具且已选中/绘制中
+    if ((tool === 'pen' || tool === 'marker' || tool === 'mosaic') && (state === 'selected' || state === 'drawing')) {
+      const d = tool === 'mosaic' ? strokeW * 5 + 8 : tool === 'marker' ? strokeW * 5 : strokeW
+      brushCur.style.display = 'block'
+      brushCur.style.width = d + 'px'
+      brushCur.style.height = d + 'px'
+      brushCur.style.left = p.x + 'px'
+      brushCur.style.top = p.y + 'px'
+    } else if (brushCur.style.display === 'block') {
+      brushCur.style.display = 'none'
     }
     if (state === 'idle') {
       scheduleWinQuery(p)
@@ -866,17 +888,29 @@
     textPos = { x: p.x, y: p.y }
     textInput.style.left = p.x + 'px'
     textInput.style.top = p.y - 3 + 'px'
-    textInput.style.fontSize = 14 + strokeW * 3 + 'px'
+    textInput.style.fontSize = textSize + 'px'
     textInput.style.color = color
-    textInput.style.display = 'block'
     textInput.value = ''
+    textInput.style.height = 'auto'
+    textInput.style.display = 'block'
     setTimeout(() => textInput.focus(), 0)
   }
 
+  textInput.addEventListener('input', () => {
+    textInput.style.height = 'auto'
+    textInput.style.height = textInput.scrollHeight + 'px'
+  })
+
   textInput.addEventListener('keydown', (e) => {
     e.stopPropagation()
-    if (e.key === 'Enter') hideTextInput(true)
-    else if (e.key === 'Escape') hideTextInput(false)
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      hideTextInput(true)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      hideTextInput(false)
+    }
+    // 其余按键（含 Enter）交给 textarea 默认行为 = 换行
   })
 
   // ---------- 键盘 ----------
@@ -909,6 +943,13 @@
       return redo()
     }
     if (mod) return
+    // 放大镜取色快捷复制：按 C 复制当前 HEX
+    if (k === 'c' && magHex.style.display === 'block' && (state === 'idle' || state === 'dragging')) {
+      const hex = magHex.textContent.split(' ')[0]
+      api.clip.writeText(hex)
+      showToast('已复制 ' + hex)
+      return
+    }
     if (e.key === 'Enter' && sel) return doAction('copy')
     if (k === 'o' && sel) return runOcrNow()
     const map = { r: 'rect', e: 'ellipse', a: 'arrow', p: 'pen', m: 'marker', t: 'text', b: 'mosaic' }
@@ -937,6 +978,7 @@
     closePop()
     tbOff = { x: 0, y: 0 }
     tbDrag = null
+    brushCur.style.display = 'none'
     ocrPanelOpen = false
     ocrBusy = false
     ocrPanel.style.display = 'none'

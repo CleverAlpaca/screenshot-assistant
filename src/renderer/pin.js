@@ -3,8 +3,18 @@
   const api = window.shotAPI
   const pic = document.getElementById('pic')
 
-  api.on('pin:init', ({ dataUrl }) => {
+  const hintEl = document.getElementById('hint')
+
+  api.on('pin:init', ({ dataUrl, hint }) => {
     pic.src = dataUrl
+    if (hint) {
+      // 首次贴图：显示操作提示 3 秒，之后记住不再弹
+      hintEl.classList.add('show')
+      setTimeout(() => {
+        hintEl.classList.remove('show')
+        api.settings.set({ pinHintShown: true })
+      }, 3200)
+    }
   })
 
   // ---- 拖动 ----

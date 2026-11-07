@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS = {
   saveDir: '', // 自动保存目录；空 = 图片\截图助手
   pinOpacity: 100, // 贴图默认不透明度 50~100
   theme: 'system', // 'system' | 'light' | 'dark'
+  pinHintShown: false, // 首次贴图操作提示只弹一次
 }
 
 class Store {

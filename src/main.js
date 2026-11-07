@@ -46,6 +46,7 @@ let capture = null
 let history = null
 let tray = null
 let mainWindow = null
+let canvasWindow = null
 let countdownWindow = null
 let countdownTimer = null
 let quitting = false
@@ -66,6 +67,49 @@ function notifySaved(filePath) {
   const n = new Notification({ title: '截图已保存', body: filePath, icon: TRAY_ICON })
   n.on('click', () => shell.showItemInFolder(filePath))
   n.show()
+}
+
+// ---- 画布原图查看器（独立无边框窗口：原生边缘调整大小 + 顶部拖动移动 + 画布缩放平移） ----
+function openCanvasWindow(dataUrl, metaText) {
+  if (!dataUrl) return
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const size = nativeImage.createFromDataURL(dataUrl).getSize()
+  const wa = display.workArea
+  const maxW = Math.round(wa.width * 0.85)
+  const maxH = Math.round(wa.height * 0.85)
+  const w = Math.max(320, Math.min(Math.round(size.width / display.scaleFactor), maxW))
+  const h = Math.max(240, Math.min(Math.round(size.height / display.scaleFactor), maxH))
+  if (canvasWindow && !canvasWindow.isDestroyed()) canvasWindow.close()
+  canvasWindow = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+    width: w,
+    height: h,
+    minWidth: 320,
+    minHeight: 240,
+    frame: false,
+    resizable: true, // 无边框窗口在 Windows 保留不可见缩放边：拖窗口边缘 = 调整画布大小
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#10141f',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  canvasWindow.setAlwaysOnTop(true, 'screen-saver')
+  canvasWindow.setContentProtection(true) // 查看器自身不进入截图
+  canvasWindow.on('closed', () => {
+    canvasWindow = null
+  })
+  canvasWindow.loadFile(path.join(__dirname, 'renderer', 'canvas.html')).then(() => {
+    canvasWindow.webContents.send('cv:init', { dataUrl, metaText })
+    canvasWindow.show()
+    canvasWindow.focus()
+  })
 }
 
 // ---- 主窗口（设置 / 历史记录 页签） ----
@@ -362,6 +406,26 @@ function registerIpc() {
     const filePath = await capture.saveImage(dataUrl)
     if (filePath) notifySaved(filePath)
     return !!filePath
+  })
+  ipcMain.handle('history:image', (_e, id) => historyImageData(id))
+  // 画布原图查看器（独立可缩放窗口）
+  ipcMain.handle('canvasViewer:open', (_e, id) => {
+    const dataUrl = historyImageData(id)
+    if (!dataUrl) return false
+    const dir = store.getSettings().saveDir || path.join(app.getPath('pictures'), '截图助手')
+    const item = [...history.list(), ...history.listLocal(dir)]
+      .sort((a, b) => b.ts - a.ts)
+      .find((x) => x.id === id)
+    const pad2 = (n) => String(n).padStart(2, '0')
+    const d = new Date(item.ts)
+    const metaText = item
+      ? `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())} · ${item.w} × ${item.h} 原图${item.local ? ' · 本地文件' : ''}`
+      : ''
+    openCanvasWindow(dataUrl, metaText)
+    return true
+  })
+  ipcMain.handle('canvasViewer:close', () => {
+    if (canvasWindow && !canvasWindow.isDestroyed()) canvasWindow.close()
   })
   ipcMain.handle('history:remove', (_e, id) => {
     // 本地文件条目：真删磁盘文件（渲染层已确认）

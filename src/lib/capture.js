@@ -286,7 +286,11 @@ class CaptureController {
     this.pins.set(wcId, meta)
     win.on('closed', () => this.pins.delete(wcId))
     win.loadFile(PIN_HTML).then(() => {
-      win.webContents.send('pin:init', { dataUrl, opacity: meta.opacity })
+      win.webContents.send('pin:init', {
+        dataUrl,
+        opacity: meta.opacity,
+        hint: !this.getSettings().pinHintShown, // 首次贴图显示操作提示
+      })
       win.setOpacity(meta.opacity / 100)
       win.show()
     })
