@@ -4,10 +4,25 @@
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
   <title>贴图</title>
+  <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="pin.css" />
 </head>
 <body>
-  <img id="pic" draggable="false" />
+  <canvas id="pcv"></canvas>
+
+  <!-- 悬停圆钮：编辑标注 / 关闭 -->
+  <div id="pIcons">
+    <button id="pBrush" class="picon" title="编辑标注">
+      <svg viewBox="0 0 24 24"><path d="M4 20 l1.2-4.2 L16.4 4.6 a2.2 2.2 0 0 1 3.1 3.1 L8.3 18.9 Z" /></svg>
+    </button>
+    <button id="pClose" class="picon" title="关闭">
+      <svg viewBox="0 0 24 24"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
+    </button>
+  </div>
+
+  <textarea id="pText" spellcheck="false"></textarea>
+
+  <!-- 首次贴图操作提示 -->
   <div id="hint">滚轮缩放 · 左键拖动 · 双击关闭</div>
   <script src="pin.js"></script>
 </body>

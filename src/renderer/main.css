@@ -422,17 +422,7 @@ input[type='range']::-webkit-slider-thumb {
   border: 1px solid var(--border-glass);
   box-shadow: var(--shadow-pop), inset 0 1px 0 rgba(255, 255, 255, 0.4);
   animation: popIn 0.12s ease;
-  /* 悬停模式：容器点击穿透，不挡列表行的 mouseenter（修复后续图片无法预览） */
-  pointer-events: none;
-}
-#hPreview.pinned {
-  /* 点击钉住模式：面板可交互，点击面板外关闭 */
-  pointer-events: auto;
-}
-#hPreview .hp-ops,
-#hPreview .hp-ops button {
-  /* 操作按钮两种模式下都可点击 */
-  pointer-events: auto;
+  /* 面板可交互（悬停 + 钉住两种模式）；移出触发区后延迟 250ms 隐藏 */
 }
 #hPreview img {
   max-width: 460px;

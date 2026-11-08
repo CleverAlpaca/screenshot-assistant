@@ -70,12 +70,15 @@
   const hBadge = $('#countBadge')
   const hPreview = $('#hPreview')
   let hpTimer = null
+  let hpHideTimer = null
   let hpItem = null
   let hpPinned = false
 
   function hidePreview() {
     clearTimeout(hpTimer)
+    clearTimeout(hpHideTimer)
     hpTimer = null
+    hpHideTimer = null
     hpPinned = false
     hPreview.classList.remove('pinned')
     hPreview.style.display = 'none'
@@ -101,9 +104,20 @@
   }
 
   function schedulePreview(item, anchor) {
+    clearTimeout(hpHideTimer) // 进入小图：取消待执行的隐藏
+    hpHideTimer = null
     clearTimeout(hpTimer)
     hpItem = item
     hpTimer = setTimeout(() => showPreviewNow(item, anchor, false), 300)
+  }
+
+  // 离开小图/面板后延迟隐藏，留出移向面板按钮的时间
+  function scheduleHidePreview() {
+    clearTimeout(hpHideTimer)
+    hpHideTimer = setTimeout(() => {
+      hpHideTimer = null
+      if (!hpPinned) hidePreview()
+    }, 250)
   }
 
   const pad = (n) => String(n).padStart(2, '0')
@@ -146,7 +160,7 @@
     })
     img.addEventListener('mouseenter', () => schedulePreview(item, img.getBoundingClientRect()))
     img.addEventListener('mouseleave', () => {
-      if (!hpPinned) hidePreview()
+      if (!hpPinned) scheduleHidePreview() // 延迟隐藏：留时间移向面板按钮
     })
     el.appendChild(img)
 
@@ -214,9 +228,14 @@
     if (hpItem) api.history.pin(hpItem.id)
     hidePreview()
   })
-  hPreview.addEventListener('mouseenter', () => clearTimeout(hpTimer))
+  // 进入面板：取消显示定时器与待执行的隐藏（按钮可从容点击）
+  hPreview.addEventListener('mouseenter', () => {
+    clearTimeout(hpTimer)
+    clearTimeout(hpHideTimer)
+    hpHideTimer = null
+  })
   hPreview.addEventListener('mouseleave', () => {
-    if (!hpPinned) hidePreview()
+    if (!hpPinned) scheduleHidePreview()
   })
   // 点击预览面板中的图片 → 画布查看器
   $('#hpImg').addEventListener('click', () => {

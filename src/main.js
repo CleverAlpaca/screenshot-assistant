@@ -320,6 +320,60 @@ function registerIpc() {
   ipcMain.handle('pin:drag', (e, dx, dy) => capture.pinDrag(e, dx, dy))
   ipcMain.handle('pin:zoom', (e, info) => capture.pinZoom(e, info))
   ipcMain.handle('pin:menu', (e) => capture.pinMenu(e))
+  ipcMain.handle('pin:setComposite', (e, dataUrl) => capture.pinSetComposite(e, dataUrl))
+  ipcMain.handle('pin:openToolbar', (e) => {
+    const opened = capture.openToolbar(e.sender.id)
+    // 打开工具条 → 进入编辑；关闭工具条 → 退出编辑
+    const meta = capture.pins.get(e.sender.id)
+    if (meta && !meta.win.isDestroyed()) {
+      meta.win.webContents.send('pin:editAction', { action: 'setEditing', arg: opened })
+    }
+  })
+  ipcMain.handle('toolbar:action', (e, action, arg) => {
+    const meta = capture.pinByToolbar(e)
+    if (!meta || meta.win.isDestroyed()) return false
+    if (action === 'ocr') {
+      const composite = meta.composite || meta.dataUrl
+      ocr.runOcr(composite).then((r) => {
+        if (meta.toolbarWin && !meta.toolbarWin.isDestroyed()) {
+          meta.toolbarWin.webContents.send('toolbar:ocrResult', { lines: r.lines, lang: r.lang })
+        }
+      })
+      return true
+    }
+    if (action === 'save') {
+      capture.saveImage(meta.composite || meta.dataUrl, meta.win).then((fp) => {
+        if (fp) notifySaved(fp)
+      })
+      return true
+    }
+    if (action === 'copy') {
+      clipboard.writeImage(nativeImage.createFromDataURL(meta.composite || meta.dataUrl))
+      return true
+    }
+    if (action === 'done') {
+      meta.win.webContents.send('pin:editAction', { action: 'setEditing', arg: false })
+      if (meta.toolbarWin && !meta.toolbarWin.isDestroyed()) meta.toolbarWin.close()
+      return true
+    }
+    // 其余动作路由到贴图编辑器
+    meta.win.webContents.send('pin:editAction', { action, arg })
+    return true
+  })
+  ipcMain.handle('pin:copyComposite', (e) => {
+    const meta = capture.pinByEvent(e)
+    if (!meta) return false
+    clipboard.writeImage(nativeImage.createFromDataURL(meta.composite || meta.dataUrl))
+    return true
+  })
+  ipcMain.handle('pin:saveComposite', async (e) => {
+    const meta = capture.pinByEvent(e)
+    if (!meta) return false
+    const filePath = await capture.saveImage(meta.composite || meta.dataUrl, meta.win)
+    if (filePath) notifySaved(filePath)
+    return !!filePath
+  })
+  // 贴图编辑已移除窗口自动缩放：工具条固定尺寸居中于贴图底部
   ipcMain.handle('pin:close', (e) => {
     const meta = capture.pinByEvent(e)
     if (meta) meta.win.close()

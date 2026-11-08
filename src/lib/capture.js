@@ -282,24 +282,112 @@ class CaptureController {
     win.setAlwaysOnTop(true, 'screen-saver')
     win.setContentProtection(true) // 贴图不进入下一次截图（对齐 Snipaste 行为）
     const wcId = win.webContents.id
-    const meta = { win, dataUrl, scale: 1, opacity: Math.min(100, Math.max(20, opacity || 100)) }
+    const meta = {
+      win,
+      dataUrl,
+      scale: 1,
+      opacity: Math.min(100, Math.max(20, opacity || 100)),
+      minH: Math.max(24, Math.round(rect.height)), // 创建时高度：编辑工具条收回的下限
+    }
     this.pins.set(wcId, meta)
-    win.on('closed', () => this.pins.delete(wcId))
+    win.on('closed', () => {
+      this.closeToolbar(wcId)
+      this.pins.delete(wcId)
+    })
     win.loadFile(PIN_HTML).then(() => {
       win.webContents.send('pin:init', {
         dataUrl,
         opacity: meta.opacity,
-        hint: !this.getSettings().pinHintShown, // 首次贴图显示操作提示
+        hint: !this.getSettings().pinHintShown,
       })
       win.setOpacity(meta.opacity / 100)
       win.show()
     })
   }
 
+  // ---- 贴图编辑工具条（独立置顶窗口，与贴图窗口尺寸解耦） ----
+  // 返回 true = 打开了工具条，false = 关闭了已有工具条
+  openToolbar(wcId) {
+    const meta = this.pins.get(wcId)
+    if (!meta || meta.win.isDestroyed()) return false
+    if (meta.toolbarWin && !meta.toolbarWin.isDestroyed()) {
+      meta.toolbarWin.close()
+      meta.toolbarWin = null
+      return false
+    }
+    const b = meta.win.getBounds()
+    const display = screen.getDisplayNearestPoint({
+      x: b.x + Math.round(b.width / 2),
+      y: b.y + Math.round(b.height / 2),
+    })
+    const wa = display.workArea
+    const TB_W = 560
+    const TB_H = 42
+    let x = b.x + Math.round((b.width - TB_W) / 2)
+    let y = b.y + b.height + 6
+    if (y + TB_H > wa.y + wa.height) y = b.y - TB_H - 6
+    x = Math.max(wa.x + 4, Math.min(x, wa.x + wa.width - TB_W - 4))
+    y = Math.max(wa.y, Math.min(y, wa.y + wa.height - TB_H))
+    meta.toolbarWin = new BrowserWindow({
+      x,
+      y,
+      width: TB_W,
+      height: TB_H,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      show: false,
+      backgroundColor: '#00000000',
+      webPreferences: webPrefs(),
+    })
+    meta.toolbarWin.setAlwaysOnTop(true, 'screen-saver')
+    meta.toolbarWin.setContentProtection(true)
+    meta.toolbarWin.on('closed', () => {
+      if (meta) meta.toolbarWin = null
+    })
+    meta.toolbarWin.loadFile(path.join(__dirname, '..', 'renderer', 'toolbar.html')).then(() => {
+      meta.toolbarWin.show()
+      meta.toolbarWin.focus()
+    })
+    return true
+  }
+
+  closeToolbar(wcId) {
+    const meta = this.pins.get(wcId)
+    if (meta && meta.toolbarWin && !meta.toolbarWin.isDestroyed()) {
+      meta.toolbarWin.destroy()
+      meta.toolbarWin = null
+    }
+  }
+
   pinByEvent(e) {
     const meta = this.pins.get(e.sender.id)
     return meta && !meta.win.isDestroyed() ? meta : null
   }
+
+  // 通过工具条窗口的 sender 找到对应的贴图
+  pinByToolbar(e) {
+    for (const [, meta] of this.pins) {
+      if (meta.toolbarWin && !meta.toolbarWin.isDestroyed() && meta.toolbarWin.webContents.id === e.sender.id) {
+        return meta
+      }
+    }
+    return null
+  }
+
+  // 贴图编辑器：接收合成图（原图+标注），右键菜单复制/另存使用
+  pinSetComposite(e, dataUrl) {
+    const meta = this.pinByEvent(e)
+    if (meta && typeof dataUrl === 'string' && dataUrl.startsWith('data:image/png')) {
+      meta.composite = dataUrl
+    }
+    return true
+  }
+
 
   pinDrag(e, dx, dy) {
     const meta = this.pinByEvent(e)
@@ -335,17 +423,18 @@ class CaptureController {
     const meta = this.pinByEvent(e)
     if (!meta) return
     const { win, dataUrl, opacity } = meta
+    const composited = meta.composite || dataUrl // 编辑过的贴图：右键操作使用合成图
     Menu.popup({
       window: win,
       menu: Menu.buildFromTemplate([
         {
           label: '复制图片',
-          click: () => clipboard.writeImage(nativeImage.createFromDataURL(dataUrl)),
+          click: () => clipboard.writeImage(nativeImage.createFromDataURL(composited)),
         },
         {
           label: '另存为…',
           click: async () => {
-            const filePath = await this.saveImage(dataUrl, win)
+            const filePath = await this.saveImage(composited, win)
             if (filePath && this.onSaved) this.onSaved(filePath)
           },
         },

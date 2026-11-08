@@ -1,0 +1,150 @@
+/* 编辑工具条窗口：单行按钮，固定尺寸，不随贴图缩放 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, "PingFang SC", "MiSans", "Microsoft YaHei UI", sans-serif;
+  font-size: 13px;
+  user-select: none;
+}
+
+#tb {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+}
+
+.tb {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.tb svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tb:hover { background: rgba(0, 0, 0, 0.08); }
+.tb.active { background: #3d8be9; color: #fff; }
+.tb.primary { background: #3d8be9; color: #fff; }
+.tb.primary:hover { filter: brightness(1.06); }
+
+.sep { width: 1px; height: 20px; margin: 0 4px; background: rgba(0, 0, 0, 0.12); align-self: center; }
+
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.25);
+}
+.wdot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #333;
+}
+
+/* ---- 颜色/粗细弹层 ---- */
+#tbPop {
+  position: fixed;
+  z-index: 21;
+  display: none;
+  width: 168px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+  user-select: none;
+}
+#tbPop .pop-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #888;
+  letter-spacing: 0.04em;
+  margin: 4px 2px 5px;
+}
+#popSwatches { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+#popSwatches .sw {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1.5px solid rgba(120, 130, 160, 0.55);
+  cursor: pointer; transition: transform 0.12s, box-shadow 0.12s;
+}
+#popSwatches .sw:hover { transform: scale(1.12); }
+#popSwatches .sw.active { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #3d8be9; transform: scale(1.05); }
+#popWidths { display: flex; gap: 3px; align-items: center; }
+#popWidths .pwd {
+  flex: 1; height: 26px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; border: none; background: none;
+}
+#popWidths .pwd i { display: block; border-radius: 50%; background: #333; }
+#popWidths .pwd:hover { background: rgba(0, 0, 0, 0.08); }
+#popWidths .pwd.active { background: rgba(61, 139, 233, 0.2); }
+#popWidths .pwd.active i { background: #3d8be9; }
+
+/* ---- OCR 结果面板 ---- */
+#ocrPanel {
+  position: fixed;
+  bottom: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+  max-height: 40vh;
+  z-index: 21;
+  display: none;
+  flex-direction: column;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+  user-select: none;
+}
+#ocrPanel .ocr-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+#ocrPanel .ocr-head-btns { display: flex; gap: 4px; }
+#ocrPanel .ocr-head-btns button {
+  padding: 3px 10px; border-radius: 8px; font-size: 11.5px; color: #555;
+  transition: all 0.12s; font-family: inherit;
+}
+#ocrPanel .ocr-head-btns button:hover { background: rgba(0, 0, 0, 0.08); color: #111; }
+#ocrPanel .ocr-head-btns #ocrCopyAll { background: #3d8be9; color: #fff; }
+#ocrPanel .ocr-head-btns #ocrCopyAll:hover { filter: brightness(1.08); color: #fff; }
+#ocrLines { overflow-y: auto; padding: 4px; }
+#ocrLines .ocr-line {
+  padding: 6px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.5;
+  color: #222; cursor: pointer; transition: background 0.1s;
+}
+#ocrLines .ocr-line:hover { background: rgba(61, 139, 233, 0.14); }

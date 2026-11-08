@@ -1,7 +1,7 @@
 // 安全桥：向渲染层暴露最小 API 面（覆盖层 / 贴图 / 倒计时 / 设置 四类窗口共用）
 const { contextBridge, ipcRenderer } = require('electron')
 
-const EVENTS = ['capture:init', 'pin:init', 'countdown:tick', 'theme:changed', 'main:page', 'cv:init']
+const EVENTS = ['capture:init', 'pin:init', 'countdown:tick', 'theme:changed', 'main:page', 'cv:init', 'pin:editAction', 'pin:toolbarClosed', 'toolbar:ocrResult']
 
 const api = {
   platform: process.platform,
@@ -16,7 +16,12 @@ const api = {
     zoom: (info) => ipcRenderer.invoke('pin:zoom', info),
     menu: () => ipcRenderer.invoke('pin:menu'),
     close: () => ipcRenderer.invoke('pin:close'),
+    setComposite: (dataUrl) => ipcRenderer.invoke('pin:setComposite', dataUrl),
+    copyComposite: () => ipcRenderer.invoke('pin:copyComposite'),
+    saveComposite: () => ipcRenderer.invoke('pin:saveComposite'),
+    openToolbar: () => ipcRenderer.invoke('pin:openToolbar'),
   },
+  toolbarAction: (action, arg) => ipcRenderer.invoke('toolbar:action', action, arg),
   countdown: {
     cancel: () => ipcRenderer.invoke('countdown:cancel'),
   },
